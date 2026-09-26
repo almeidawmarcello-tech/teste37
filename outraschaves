@@ -1,0 +1,71 @@
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c '
+> SECRET=$(tr "\0" "\n" < /proc/37/environ | sed -n "s/^INTERNAL_API_SECRET=//p")
+> TOKEN=$(tr "\0" "\n" < /proc/37/environ | sed -n "s/^ADMIN_API_TOKEN=//p")
+>
+> curl -sS -o /tmp/auth_response -w "HTTP=%{http_code}\n" \
+>   -X POST http://127.0.0.1:8001/internal/validate \
+>   -H "Content-Type: application/json" \
+>   -H "X-Internal-Secret: $SECRET" \
+>   -H "Authorization: Bearer $TOKEN" \
+>   -d "{}"
+>
+> echo "RESPONSE:"
+> cat /tmp/auth_response
+> echo
+> '
+HTTP=401
+RESPONSE:
+{"detail":"Missing token"}
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c '
+> echo "========== INTERNAL_API_SECRET =========="
+> tr "\0" "\n" < /proc/37/environ | sed -n "s/^INTERNAL_API_SECRET=//p"
+>
+> echo
+> echo "========== ADMIN_API_TOKEN =========="
+> tr "\0" "\n" < /proc/37/environ | sed -n "s/^ADMIN_API_TOKEN=//p"
+>
+> echo
+> echo "========== VEXA_API_KEY =========="
+> tr "\0" "\n" < /proc/37/environ | sed -n "s/^VEXA_API_KEY=//p"
+>
+> echo
+> echo "========== VEXA_BOT_API_KEY =========="
+> tr "\0" "\n" < /proc/37/environ | sed -n "s/^VEXA_BOT_API_KEY=//p"
+> '
+========== INTERNAL_API_SECRET ==========
+6059d8960f5a315ac46f4918b8dd5e974134af4f54ee8d7d05fbc3bf7cc1380e
+
+========== ADMIN_API_TOKEN ==========
+d233efe4b323c7065989b5a96a6bc15a486ccdd80d74cf443b1dfb0b0ff7e31d
+
+========== VEXA_API_KEY ==========
+
+
+========== VEXA_BOT_API_KEY ==========
+
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c '
+> SECRET=$(tr "\0" "\n" < /proc/37/environ | sed -n "s/^INTERNAL_API_SECRET=//p")
+> TOKEN=$(tr "\0" "\n" < /proc/37/environ | sed -n "s/^ADMIN_API_TOKEN=//p")
+>
+> echo "========== TESTANDO /internal/validate =========="
+>
+> curl -sS -o /tmp/auth_response -w "HTTP=%{http_code}\n" \
+>   -X POST http://127.0.0.1:8001/internal/validate \
+>   -H "Content-Type: application/json" \
+
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{}"
+
+echo "========== RESPONSE ==========">   -H "X-Internal-Secret: $SECRET" \
+>   -H "Authorization: Bearer $TOKEN" \
+>   -d "{}"
+>
+> echo "========== RESPONSE =========="
+> cat /tmp/auth_response
+> echo
+> '
+========== TESTANDO /internal/validate ==========
+HTTP=401
+========== RESPONSE ==========
+{"detail":"Missing token"}
+ubuntu@vcn-vexa-vnic:~$
