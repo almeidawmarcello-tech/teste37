@@ -1,0 +1,6 @@
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c 'echo "ADMIN-API PID 33:"; tr "\0" "\n" < /proc/33/environ | grep "^INTERNAL_API_SECRET=" | cut -d= -f2- | sha256sum; echo "GATEWAY PID 37:"; tr "\0" "\n" < /proc/37/environ | grep "^INTERNAL_API_SECRET=" | cut -d= -f2- | sha256sum'
+ADMIN-API PID 33:
+9f82f9625e21cd4f1df1c7d8bfff7b39ce71dd57cb7f891d9cb76efac186dd5e  -
+GATEWAY PID 37:
+9f82f9625e21cd4f1df1c7d8bfff7b39ce71dd57cb7f891d9cb76efac186dd5e  -
+ubuntu@vcn-vexa-vnic:~$
