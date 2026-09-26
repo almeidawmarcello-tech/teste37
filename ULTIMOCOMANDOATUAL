@@ -1,0 +1,407 @@
+ubuntu@vcn-vexa-vnic:~/vexa$ docker exec vexa-lite sh -c '
+> echo "===== AUTH CONFIG ATUAL ====="
+> echo "--- BOT_AUTHENTICATED ---"
+> env | grep "^BOT_AUTHENTICATED=" || echo "BOT_AUTHENTICATED não definido"
+SERDATA ---"
+env | grep -E "^BOT_(USE>
+> echo "--- BOT S3 / USERDATA ---"
+> env | grep -E "^BOT_(USERDATA_S3_PATH|S3_ENDPOINT|S3_BUCKET|S3_ACCESS_KEY|S3_SECRET_KEY)=" |
+> cut -d= -f1 | sort
+>
+> echo
+> echo "--- VNC / DISPLAY ---"
+^(DI> env | grep -E "^(DISPLAY|VNC_|NOVNC_|WEBSOCKIFY_)" | cut -d= -f1 | sort
+>
+> echo
+> echo "--- PORTAS ESCUTANDO ---"
+null |> ss -lntp 2>/dev/null | grep -E ":(6080|5900|3001|8056|8100|8000|9000)\b" || true
+> '
+===== AUTH CONFIG ATUAL =====
+--- BOT_AUTHENTICATED ---
+BOT_AUTHENTICATED não definido
+--- BOT S3 / USERDATA ---
+
+--- VNC / DISPLAY ---
+DISPLAY
+
+--- PORTAS ESCUTANDO ---
+ubuntu@vcn-vexa-vnic:~/vexa$ cd ~/vexa && grep -nE -C 8 "AUTHENTICATED|BOT_AUTH|USERDATA_S3|S3_ENDPOINT|S3_BUCKET|6080|VNC|login" deploy/lite/Makefile
+ubuntu@vcn-vexa-vnic:~/vexa$ docker exec vexa-lite sh -c '
+> echo "===== REMOTE-BROWSER PACKAGE ====="
+> echo "--- package.json ---"
+> cat /app/core/meetings/modules/remote-browser/package.json 2>/dev/null || true
+>
+> echo
+> echo "--- package scripts ---"
+> node -e "
+> const p=require(\"/app/core/meetings/modules/remote-browser/package.json\");
+> console.log(JSON.stringify(p.scripts || {}, null, 2))
+> " 2>/dev/null || true
+>
+> echo
+> echo "--- provision/login references ---"
+> grep -RniE "provision-cli|provision-login|pnpm.*remote-browser.*login|make login|AUTH_PLATFORM|BOT_AUTHENTICATED" \
+> /app 2>/dev/null | head -n 250
+> '
+===== REMOTE-BROWSER PACKAGE =====
+--- package.json ---
+{
+  "name": "@vexa/remote-browser",
+  "version": "0.1.0",
+  "description": "Remote browser as container: persistent-context launch (VNC/CDP), browser-session persistence + retrieval (cookies/localStorage), and logged-in validation — so the join layer can join authenticated.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx src/auth.smoke.test.ts && tsx src/session-store.test.ts",
+    "check:isolation": "node scripts/check-isolation.js",
+    "login": "tsx src/provision-cli.ts"
+  },
+  "dependencies": {
+    "playwright": "1.56.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
+
+--- package scripts ---
+{
+  "build": "tsc",
+  "test": "tsx src/auth.smoke.test.ts && tsx src/session-store.test.ts",
+  "check:isolation": "node scripts/check-isolation.js",
+  "login": "tsx src/provision-cli.ts"
+}
+
+--- provision/login references ---
+/app/meeting-api/src/meeting_api/config.v1.json:167:   "key": "BOT_AUTHENTICATED",
+/app/meeting-api/src/meeting_api/config.v1.json:170:   "description": "deployment-scoped authenticated-bot knob: when true, EVERY POST /bots spawn carries the invocation.v1 auth block so the bot restores the provisioned browser session (make login) and joins signed-in. Demands the BOT_USERDATA_S3_PATH + BOT_S3_* keys — incomplete config answers a typed 503 (never a silent anonymous join).",
+/app/meeting-api/src/meeting_api/config.v1.json:179:   "default": "(unset — required when BOT_AUTHENTICATED=true; the userdata prefix holding the provisioned session, e.g. userdata/bot-identity-1)",
+/app/meeting-api/src/meeting_api/config.v1.json:189:   "default": "(unset — required when BOT_AUTHENTICATED=true)",
+/app/meeting-api/src/meeting_api/config.v1.json:199:   "default": "(unset — required when BOT_AUTHENTICATED=true)",
+/app/meeting-api/src/meeting_api/bot_spawn/ports.py:296:    """``BOT_AUTHENTICATED=true`` without a complete userdata store config — HTTP 503.
+/app/meeting-api/src/meeting_api/bot_spawn/router.py:485:            # Deployment misconfiguration (BOT_AUTHENTICATED without a complete userdata store) —
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:528:    # 1c. Authenticated-bot mode (#724, deployment-scoped knob — Q1-A): when BOT_AUTHENTICATED is
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:530:    #     deployment's provisioned browser session (`make login`) and joins signed-in. Config is
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:537:    authenticated = env_flag("BOT_AUTHENTICATED", False)
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:550:                "BOT_AUTHENTICATED is set but the userdata store is incomplete — set "
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:552:                "BOT_S3_ACCESS_KEY/BOT_S3_SECRET_KEY); provision the session with `make login`"
+/app/meeting-api/src/meeting_api/bot_spawn/invocation.py:197:        # scoped — set by the BOT_AUTHENTICATED knob in ``request_bot``; None-stripped otherwise
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:4: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:5: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:11: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:15: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:30:    const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:32:        console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:46:    console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:52:        console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:56:        console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:62:        console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:66:    console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:71:    console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/package.json:21:    "login": "tsx src/provision-cli.ts"
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:2: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:3: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:9: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:13: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:31:  const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:33:    console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:49:  console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:56:    console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:61:    console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:68:    console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:72:  console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:78:  console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/node_modules/.pnpm/node_modules/@vexa/join/dist/googlemeet/join.js:287: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/join/dist/googlemeet/join.d.ts:105: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/join/src/googlemeet/join.ts:296: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/join/src/__tests__/localePin.test.ts:32:console.log("\n=== 3. ?hl= on the constructed Meet URL (BOT_AUTHENTICATED lever) ===");
+/app/node_modules/.pnpm/node_modules/@vexa/join/scripts/debug-join.ts:46:  // profile (produced by @vexa/remote-browser `make login`). The brick skips guest
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:4: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:5: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:11: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:15: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:30:    const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:32:        console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:46:    console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:52:        console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:56:        console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:62:        console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:66:    console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:71:    console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/package.json:21:    "login": "tsx src/provision-cli.ts"
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:2: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:3: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:9: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:13: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:31:  const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:33:    console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:49:  console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:56:    console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:61:    console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:68:    console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:72:  console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:78:  console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/join/dist/googlemeet/join.js:287: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/join/dist/googlemeet/join.d.ts:105: * BOT_AUTHENTICATED path: a signed-in Google account'sclient_loop: send disconnect: Connection reset
+PS C:\Windows\system32> ssh ubuntu@137.131.173.71
+ssh: connect to host 137.131.173.71 port 22: Unknown error
+PS C:\Windows\system32> ssh -i "C:\Users\RTEC\Documents\ENTREVISTAENGENHEIROSEGUNDA\SISTEMA\ssh-key-2026-09-25.key" ubuntu@137.131.173.71
+Welcome to Ubuntu 24.04.5 LTS (GNU/Linux 6.17.0-1020-oracle x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Sat Sep 26 02:28:19 UTC 2026
+
+  System load:  0.98               Processes:             169
+  Usage of /:   33.7% of 44.07GB   Users logged in:       1
+  Memory usage: 54%                IPv4 address for ens3: 10.0.0.147
+  Swap usage:   29%
+
+  => There is 1 zombie process.
+
+ * Canonical Workshop gives developers fast, composable, reproducible, and
+   secure developer environments that are perfect for agentic workflows.
+
+   https://ubuntu.com/workshop
+
+Expanded Security Maintenance for Applications is not enabled.
+
+1 update can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+2 additional security updates can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+
+*** System restart required ***
+Last login: Sat Sep 26 20:19:56 2026 from 45.178.29.104
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c '
+> echo "===== REMOTE-BROWSER PACKAGE ====="
+> echo "--- package.json ---"
+> cat /app/core/meetings/modules/remote-browser/package.json 2>/dev/null || true
+>
+> echo
+> echo "--- package scripts ---"
+> node -e "
+> const p=require(\"/app/core/meetings/modules/remote-browser/package.json\");
+> console.log(JSON.stringify(p.scripts || {}, null, 2))
+> " 2>/dev/null || true
+>
+> echo
+> echo "--- provision/login references ---"
+> grep -RniE "provision-cli|provision-login|pnpm.*remote-browser.*login|make login|AUTH_PLATFORM|BOT_AUTHENTICATED" \
+> /app 2>/dev/null | head -n 250
+> '
+===== REMOTE-BROWSER PACKAGE =====
+--- package.json ---
+{
+  "name": "@vexa/remote-browser",
+  "version": "0.1.0",
+  "description": "Remote browser as container: persistent-context launch (VNC/CDP), browser-session persistence + retrieval (cookies/localStorage), and logged-in validation — so the join layer can join authenticated.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx src/auth.smoke.test.ts && tsx src/session-store.test.ts",
+    "check:isolation": "node scripts/check-isolation.js",
+    "login": "tsx src/provision-cli.ts"
+  },
+  "dependencies": {
+    "playwright": "1.56.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
+
+--- package scripts ---
+{
+  "build": "tsc",
+  "test": "tsx src/auth.smoke.test.ts && tsx src/session-store.test.ts",
+  "check:isolation": "node scripts/check-isolation.js",
+  "login": "tsx src/provision-cli.ts"
+}
+
+--- provision/login references ---
+/app/meeting-api/src/meeting_api/config.v1.json:167:   "key": "BOT_AUTHENTICATED",
+/app/meeting-api/src/meeting_api/config.v1.json:170:   "description": "deployment-scoped authenticated-bot knob: when true, EVERY POST /bots spawn carries the invocation.v1 auth block so the bot restores the provisioned browser session (make login) and joins signed-in. Demands the BOT_USERDATA_S3_PATH + BOT_S3_* keys — incomplete config answers a typed 503 (never a silent anonymous join).",
+/app/meeting-api/src/meeting_api/config.v1.json:179:   "default": "(unset — required when BOT_AUTHENTICATED=true; the userdata prefix holding the provisioned session, e.g. userdata/bot-identity-1)",
+/app/meeting-api/src/meeting_api/config.v1.json:189:   "default": "(unset — required when BOT_AUTHENTICATED=true)",
+/app/meeting-api/src/meeting_api/config.v1.json:199:   "default": "(unset — required when BOT_AUTHENTICATED=true)",
+/app/meeting-api/src/meeting_api/bot_spawn/ports.py:296:    """``BOT_AUTHENTICATED=true`` without a complete userdata store config — HTTP 503.
+/app/meeting-api/src/meeting_api/bot_spawn/router.py:485:            # Deployment misconfiguration (BOT_AUTHENTICATED without a complete userdata store) —
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:528:    # 1c. Authenticated-bot mode (#724, deployment-scoped knob — Q1-A): when BOT_AUTHENTICATED is
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:530:    #     deployment's provisioned browser session (`make login`) and joins signed-in. Config is
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:537:    authenticated = env_flag("BOT_AUTHENTICATED", False)
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:550:                "BOT_AUTHENTICATED is set but the userdata store is incomplete — set "
+/app/meeting-api/src/meeting_api/bot_spawn/service.py:552:                "BOT_S3_ACCESS_KEY/BOT_S3_SECRET_KEY); provision the session with `make login`"
+/app/meeting-api/src/meeting_api/bot_spawn/invocation.py:197:        # scoped — set by the BOT_AUTHENTICATED knob in ``request_bot``; None-stripped otherwise
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:4: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:5: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:11: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:15: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:30:    const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:32:        console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:46:    console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:52:        console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:56:        console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:62:        console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:66:    console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/dist/provision-cli.js:71:    console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/package.json:21:    "login": "tsx src/provision-cli.ts"
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:2: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:3: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:9: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:13: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:31:  const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:33:    console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:49:  console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:56:    console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:61:    console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:68:    console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:72:  console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/node_modules/.pnpm/node_modules/@vexa/remote-browser/src/provision-cli.ts:78:  console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/node_modules/.pnpm/node_modules/@vexa/join/dist/googlemeet/join.js:287: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/join/dist/googlemeet/join.d.ts:105: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/join/src/googlemeet/join.ts:296: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/join/src/__tests__/localePin.test.ts:32:console.log("\n=== 3. ?hl= on the constructed Meet URL (BOT_AUTHENTICATED lever) ===");
+/app/node_modules/.pnpm/node_modules/@vexa/join/scripts/debug-join.ts:46:  // profile (produced by @vexa/remote-browser `make login`). The brick skips guest
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:4: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:5: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:11: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:15: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:30:    const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:32:        console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:46:    console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:52:        console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:56:        console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:62:        console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:66:    console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:71:    console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/package.json:21:    "login": "tsx src/provision-cli.ts"
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:2: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:3: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:9: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:13: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:31:  const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:33:    console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:49:  console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:56:    console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:61:    console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:68:    console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:72:  console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:78:  console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/join/dist/googlemeet/join.js:287: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/join/dist/googlemeet/join.d.ts:105: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/join/src/googlemeet/join.ts:296: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/join/src/__tests__/localePin.test.ts:32:console.log("\n=== 3. ?hl= on the constructed Meet URL (BOT_AUTHENTICATED lever) ===");
+/app/node_modules/.pnpm/node_modules/@vexa/bot/node_modules/@vexa/join/scripts/debug-join.ts:46:  // profile (produced by @vexa/remote-browser `make login`). The brick skips guest
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:4: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:5: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:11: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:15: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:30:    const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:32:        console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:46:    console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:52:        console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:56:        console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:62:        console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:66:    console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/core/meetings/modules/remote-browser/dist/provision-cli.js:71:    console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/core/meetings/modules/remote-browser/package.json:21:    "login": "tsx src/provision-cli.ts"
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:2: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:3: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:9: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:13: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:31:  const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:33:    console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:49:  console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:56:    console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:61:    console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:68:    console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:72:  console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/core/meetings/modules/remote-browser/src/provision-cli.ts:78:  console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/core/meetings/modules/join/dist/googlemeet/join.js:287: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/core/meetings/modules/join/dist/googlemeet/join.d.ts:105: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/core/meetings/modules/join/src/googlemeet/join.ts:296: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/core/meetings/modules/join/src/__tests__/localePin.test.ts:32:console.log("\n=== 3. ?hl= on the constructed Meet URL (BOT_AUTHENTICATED lever) ===");
+/app/core/meetings/modules/join/scripts/debug-join.ts:46:  // profile (produced by @vexa/remote-browser `make login`). The brick skips guest
+/app/core/meetings/services/meeting-api/tests/test_authenticated_spawn.py:4:``BOT_AUTHENTICATED`` knob makes every stock ``POST /bots`` spawn carry the sealed invocation.v1
+/app/core/meetings/services/meeting-api/tests/test_authenticated_spawn.py:28:        "BOT_AUTHENTICATED": "true",
+/app/core/meetings/services/meeting-api/tests/test_authenticated_spawn.py:91:    _set_auth_env(monkeypatch, BOT_AUTHENTICATED=None)
+/app/core/meetings/services/meeting-api/tests/test_authenticated_spawn.py:135:    _set_auth_env(monkeypatch, BOT_AUTHENTICATED=None)
+/app/core/meetings/services/meeting-api/src/meeting_api/config.v1.json:167:   "key": "BOT_AUTHENTICATED",
+/app/core/meetings/services/meeting-api/src/meeting_api/config.v1.json:170:   "description": "deployment-scoped authenticated-bot knob: when true, EVERY POST /bots spawn carries the invocation.v1 auth block so the bot restores the provisioned browser session (make login) and joins signed-in. Demands the BOT_USERDATA_S3_PATH + BOT_S3_* keys — incomplete config answers a typed 503 (never a silent anonymous join).",
+/app/core/meetings/services/meeting-api/src/meeting_api/config.v1.json:179:   "default": "(unset — required when BOT_AUTHENTICATED=true; the userdata prefix holding the provisioned session, e.g. userdata/bot-identity-1)",
+/app/core/meetings/services/meeting-api/src/meeting_api/config.v1.json:189:   "default": "(unset — required when BOT_AUTHENTICATED=true)",
+/app/core/meetings/services/meeting-api/src/meeting_api/config.v1.json:199:   "default": "(unset — required when BOT_AUTHENTICATED=true)",
+/app/core/meetings/services/meeting-api/src/meeting_api/bot_spawn/ports.py:296:    """``BOT_AUTHENTICATED=true`` without a complete userdata store config — HTTP 503.
+/app/core/meetings/services/meeting-api/src/meeting_api/bot_spawn/router.py:485:            # Deployment misconfiguration (BOT_AUTHENTICATED without a complete userdata store) —
+/app/core/meetings/services/meeting-api/src/meeting_api/bot_spawn/service.py:528:    # 1c. Authenticated-bot mode (#724, deployment-scoped knob — Q1-A): when BOT_AUTHENTICATED is
+/app/core/meetings/services/meeting-api/src/meeting_api/bot_spawn/service.py:530:    #     deployment's provisioned browser session (`make login`) and joins signed-in. Config is
+/app/core/meetings/services/meeting-api/src/meeting_api/bot_spawn/service.py:537:    authenticated = env_flag("BOT_AUTHENTICATED", False)
+/app/core/meetings/services/meeting-api/src/meeting_api/bot_spawn/service.py:550:                "BOT_AUTHENTICATED is set but the userdata store is incomplete — set "
+/app/core/meetings/services/meeting-api/src/meeting_api/bot_spawn/service.py:552:                "BOT_S3_ACCESS_KEY/BOT_S3_SECRET_KEY); provision the session with `make login`"
+/app/core/meetings/services/meeting-api/src/meeting_api/bot_spawn/invocation.py:197:        # scoped — set by the BOT_AUTHENTICATED knob in ``request_bot``; None-stripped otherwise
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:4: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:5: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:11: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:15: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:30:    const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:32:        console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:46:    console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:52:        console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:56:        console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:62:        console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:66:    console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/dist/provision-cli.js:71:    console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/package.json:21:    "login": "tsx src/provision-cli.ts"
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:2: * provision-cli — the operator entry point that creates an authenticated bot session
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:3: * (the `make login` / `pnpm --filter @vexa/remote-browser login` command, #724 C1).
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:9: * deployment configured with `BOT_AUTHENTICATED=true` then restores this session and
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:13: *   AUTH_PLATFORM            google | zoom | teams        (default: google)
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:31:  const raw = (process.env.AUTH_PLATFORM || process.argv[2] || 'google').toLowerCase();
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:33:    console.error(`[provision-login] unknown platform '${raw}' — expected one of: ${PLATFORMS.join(', ')}`);
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:49:  console.log(`[provision-login] platform=${platform} profileDir=${profileDir} ` +
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:56:    console.error(`[provision-login] FAILED — login not confirmed: ${status.detail}`);
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:61:    console.log(`[provision-login] signed in; session lives in ${profileDir} (set BOT_USERDATA_S3_PATH ` +
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:68:    console.error('[provision-login] FAILED — signed in, but zero auth-essential items reached ' +
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:72:  console.log(`[provision-login] SUCCESS — ${uploaded} auth-essential items at ` +
+/app/core/meetings/services/bot/node_modules/@vexa/remote-browser/src/provision-cli.ts:78:  console.error(`[provision-login] FAILED — ${String(e)}`);
+/app/core/meetings/services/bot/node_modules/@vexa/join/dist/googlemeet/join.js:287: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/core/meetings/services/bot/node_modules/@vexa/join/dist/googlemeet/join.d.ts:105: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/core/meetings/services/bot/node_modules/@vexa/join/src/googlemeet/join.ts:296: * BOT_AUTHENTICATED path: a signed-in Google account's own language preference
+/app/core/meetings/services/bot/node_modules/@vexa/join/src/__tests__/localePin.test.ts:32:console.log("\n=== 3. ?hl= on the constructed Meet URL (BOT_AUTHENTICATED lever) ===");
+/app/core/meetings/services/bot/node_modules/@vexa/join/scripts/debug-join.ts:46:  // profile (produced by @vexa/remote-browser `make login`). The brick skips guest
+ubuntu@vcn-vexa-vnic:~$
