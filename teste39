@@ -1,0 +1,78 @@
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c 'sed -n "874,945p" /app/admin-api/src/admin_api/app/main.py'
+    @app.post("/internal/validate", include_in_schema=False)
+    async def validate_token(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
+        secret = _internal_secret()
+        # Fail closed: no secret configured → reject unless dev mode.
+        if not _dev_mode() and not secret:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                detail="INTERNAL_API_SECRET not configured")
+        if secret:
+            provided = request.headers.get("X-Internal-Secret", "")
+            if not hmac.compare_digest(provided, secret):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid internal secret")
+
+        token = payload.get("token", "")
+        if not token:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+
+        row = (await db.execute(
+            select(APIToken, User).join(User, APIToken.user_id == User.id)
+            .where(APIToken.token == token)
+        )).first()
+        if not row:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        api_token, user = row
+
+        if api_token.expires_at is not None and api_token.expires_at < datetime.utcnow():
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token expired")
+
+        api_token.last_used_at = datetime.utcnow()
+        await db.commit()
+
+        scopes = list(api_token.scopes) if api_token.scopes else ["legacy"]
+        resp = {
+            "user_id": user.id,
+            "scopes": scopes,
+            "max_concurrent": user.max_concurrent_bots,
+            "email": user.email,
+            # DB-backed admin role (bootstrap-claimed on a fresh instance) — the terminal's
+            # admin gate reads THIS, with its VEXA_ADMIN_EMAILS allowlist kept as an override.
+            "is_admin": (user.data or {}).get("is_admin") is True if isinstance(user.data, dict) else False,
+        }
+        data_blob = user.data if isinstance(user.data, dict) else {}
+        if data_blob.get("webhook_url"):
+            resp["webhook_url"] = data_blob["webhook_url"]
+            if data_blob.get("webhook_secret"):
+                resp["webhook_secret"] = data_blob["webhook_secret"]
+            if data_blob.get("webhook_events"):
+                resp["webhook_events"] = data_blob["webhook_events"]
+        # Lane A: the caller's shared-workspace membership ids (from the derived users.data.memberships[]),
+        # so the gateway can inject x-user-workspaces → meeting-api authorizes a member's transcript subscribe.
+        memberships = data_blob.get("memberships")
+        if isinstance(memberships, list):
+            resp["workspaces"] = [m["workspace_id"] for m in memberships
+                                  if isinstance(m, dict) and m.get("workspace_id")]
+        return resp
+
+    # --- internal tier: workspace membership index (Lane M) — the DERIVED users.data.memberships[]
+    #     mirror of the authoritative policy/members.json in each shared workspace's git repo. agent-api
+    #     (no DB) POSTs mirror updates here over the same X-Internal-Secret internal edge as /internal/
+    #     validate. The git file is the source of truth (Q6): this index is a rebuildable listing cache.
+    def _check_internal(request: Request) -> None:
+        secret = _internal_secret()
+        if not _dev_mode() and not secret:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                detail="INTERNAL_API_SECRET not configured")
+        if secret:
+            provided = request.headers.get("X-Internal-Secret", "")
+            if not hmac.compare_digest(provided, secret):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid internal secret")
+
+    def _check_internal_no_dev_bypass(request: Request) -> None:
+        """The internal check WITHOUT the dev-mode escape — for a door that reads or writes ONE
+        NAMED PERSON'S data by path id.
+ubuntu@vcn-vexa-vnic:~$ @app.post("/internal/validate")
+-bash: syntax error near unexpected token `"/internal/validate"'
+ubuntu@vcn-vexa-vnic:~$ async def validate_token(...)
+-bash: syntax error near unexpected token `('
+ubuntu@vcn-vexa-vnic:~$
