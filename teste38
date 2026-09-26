@@ -1,0 +1,115 @@
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c 'grep -Rni -C 8 "internal/validate" /app/admin-api/src 2>/dev/null | head -100'
+/app/admin-api/src/admin_api/config.v1.json-1-{
+/app/admin-api/src/admin_api/config.v1.json-2- "contract": "config.v1",
+/app/admin-api/src/admin_api/config.v1.json-3- "service": "admin-api",
+/app/admin-api/src/admin_api/config.v1.json-4- "keys": [
+/app/admin-api/src/admin_api/config.v1.json-5-  {
+/app/admin-api/src/admin_api/config.v1.json-6-   "key": "INTERNAL_API_SECRET",
+/app/admin-api/src/admin_api/config.v1.json-7-   "class": "required-explicit",
+/app/admin-api/src/admin_api/config.v1.json-8-   "secret": true,
+/app/admin-api/src/admin_api/config.v1.json:9:   "description": "shared internal secret the /internal/validate endpoint requires (fail-closed guard, main.py). Unset, gateway's validation hop 503s and every API-key check fails — so the boot refuses instead of coming up green and rejecting every call (the 2026-04-23 failure shape, #526). The same value gates /internal/bootstrap-admin and /internal/users/by-email, so a published placeholder is refused outright (F95).",
+/app/admin-api/src/admin_api/config.v1.json-10-   "forbidden_values": [
+/app/admin-api/src/admin_api/config.v1.json-11-     "vexa-internal-secret",
+/app/admin-api/src/admin_api/config.v1.json-12-     "lite-internal-secret",
+/app/admin-api/src/admin_api/config.v1.json-13-     "changeme",
+/app/admin-api/src/admin_api/config.v1.json-14-     "change-me",
+/app/admin-api/src/admin_api/config.v1.json-15-     "CHANGE-ME",
+/app/admin-api/src/admin_api/config.v1.json-16-     "default",
+/app/admin-api/src/admin_api/config.v1.json-17-     "secret"
+--
+/app/admin-api/src/admin_api/__init__.py-1-"""admin-api — the v0.12 identity service carve + the Group-1 backing-stack evals.
+/app/admin-api/src/admin_api/__init__.py-2-
+/app/admin-api/src/admin_api/__init__.py-3-Public surface:
+/app/admin-api/src/admin_api/__init__.py-4-  - schema.models : the v0.12 SQLAlchemy source-of-truth (identity + meeting tables)
+/app/admin-api/src/admin_api/__init__.py-5-  - schema.sync   : ensure_schema() idempotent convergence
+/app/admin-api/src/admin_api/__init__.py:6:  - app.main      : create_app() FastAPI surface (3 auth tiers, /internal/validate)
+/app/admin-api/src/admin_api/__init__.py-7-  - token_scope   : vxa_<scope>_ token minting
+/app/admin-api/src/admin_api/__init__.py-8-"""
+/app/admin-api/src/admin_api/__init__.py-9-
+/app/admin-api/src/admin_api/__init__.py-10-# Front door (P6): the public submodules/subpackages. Self-contained (no cross-package imports),
+/app/admin-api/src/admin_api/__init__.py-11-# so eager-importing them here is safe (matches the meeting_api / transcription_collector convention).
+/app/admin-api/src/admin_api/__init__.py-12-from . import app, schema, token_scope
+/app/admin-api/src/admin_api/__init__.py-13-
+/app/admin-api/src/admin_api/__init__.py-14-__all__ = [
+--
+/app/admin-api/src/admin_api/app/main.py-1-"""The admin-api FastAPI surface — v0.12 carve of `services/admin-api/app/main.py`.
+/app/admin-api/src/admin_api/app/main.py-2-
+/app/admin-api/src/admin_api/app/main.py-3-Derived (re-read, reimplemented clean) — the load-bearing identity surface that O-STACK-3
+/app/admin-api/src/admin_api/app/main.py-4-exercises:
+/app/admin-api/src/admin_api/app/main.py-5-
+/app/admin-api/src/admin_api/app/main.py-6-  3 auth tiers (parent §):
+/app/admin-api/src/admin_api/app/main.py-7-    - admin   : `X-Admin-API-Key` == ADMIN_API_TOKEN (hmac.compare_digest)  → user/token CRUD
+/app/admin-api/src/admin_api/app/main.py-8-    - user    : `X-API-Key` resolves to an APIToken with a valid scope       → /user/* self-serve
+/app/admin-api/src/admin_api/app/main.py:9:    - internal: `X-Internal-Secret` == INTERNAL_API_SECRET, FAIL-CLOSED      → /internal/validate
+/app/admin-api/src/admin_api/app/main.py-10-
+/app/admin-api/src/admin_api/app/main.py:11:  /internal/validate (the gateway's authz oracle): returns user_id + scopes + max_concurrent +
+/app/admin-api/src/admin_api/app/main.py-12-  email, plus webhook_url/secret/events from user.data; rejects expired tokens; bumps
+/app/admin-api/src/admin_api/app/main.py-13-  last_used_at; FAILS CLOSED when INTERNAL_API_SECRET is unset (503) and on a bad secret (403).
+/app/admin-api/src/admin_api/app/main.py-14-
+/app/admin-api/src/admin_api/app/main.py-15-  Token mint: scoped {bot,tx,browser}. Scopes via JSON body `{"scopes":["bot","tx"]}` or
+/app/admin-api/src/admin_api/app/main.py-16-  query `?scopes=bot,tx` / `?scope=bot` (body wins when present). Optional `name` /
+/app/admin-api/src/admin_api/app/main.py-17-  `expires_in` in body or query; an invalid scope → 422. A JSON body with unknown fields
+/app/admin-api/src/admin_api/app/main.py-18-  is refused (422) — never silently dropped (#922).
+/app/admin-api/src/admin_api/app/main.py-19-"""
+--
+/app/admin-api/src/admin_api/app/main.py-866-        prefs = data.get("transcription_prefs") or {}
+/app/admin-api/src/admin_api/app/main.py-867-        return {
+/app/admin-api/src/admin_api/app/main.py-868-            "url": prefs.get("url"),
+/app/admin-api/src/admin_api/app/main.py-869-            "token_set": bool(prefs.get("token")),
+/app/admin-api/src/admin_api/app/main.py-870-            "token": _mask_secret(prefs.get("token")),
+/app/admin-api/src/admin_api/app/main.py-871-        }
+/app/admin-api/src/admin_api/app/main.py-872-
+/app/admin-api/src/admin_api/app/main.py-873-    # --- internal tier: the gateway's authz oracle (FAIL-CLOSED) ---
+/app/admin-api/src/admin_api/app/main.py:874:    @app.post("/internal/validate", include_in_schema=False)
+/app/admin-api/src/admin_api/app/main.py-875-    async def validate_token(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
+/app/admin-api/src/admin_api/app/main.py-876-        secret = _internal_secret()
+/app/admin-api/src/admin_api/app/main.py-877-        # Fail closed: no secret configured → reject unless dev mode.
+/app/admin-api/src/admin_api/app/main.py-878-        if not _dev_mode() and not secret:
+/app/admin-api/src/admin_api/app/main.py-879-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+/app/admin-api/src/admin_api/app/main.py-880-                                detail="INTERNAL_API_SECRET not configured")
+/app/admin-api/src/admin_api/app/main.py-881-        if secret:
+/app/admin-api/src/admin_api/app/main.py-882-            provided = request.headers.get("X-Internal-Secret", "")
+--
+/app/admin-api/src/admin_api/app/main.py-940-            if not hmac.compare_digest(provided, secret):
+/app/admin-api/src/admin_api/app/main.py-941-                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid internal secret")
+/app/admin-api/src/admin_api/app/main.py-942-
+/app/admin-api/src/admin_api/app/main.py-943-    def _check_internal_no_dev_bypass(request: Request) -> None:
+/app/admin-api/src/admin_api/app/main.py-944-        """The internal check WITHOUT the dev-mode escape — for a door that reads or writes ONE
+/app/admin-api/src/admin_api/app/main.py-945-        NAMED PERSON'S data by path id.
+/app/admin-api/src/admin_api/app/main.py-946-
+/app/admin-api/src/admin_api/app/main.py-947-        `_check_internal` lets `DEV_MODE=true` with no `INTERNAL_API_SECRET` through unauthenticated.
+/app/admin-api/src/admin_api/app/main.py:948:        For the doors it was written for — `/internal/validate`, the membership index — that is a
+/app/admin-api/src/admin_api/app/main.py-949-        local-development convenience over data the caller could get anyway. For a route shaped
+/app/admin-api/src/admin_api/app/main.py-950-        `/internal/users/{id}/…` it is not the same thing: the id is supplied by the CALLER, so the
+/app/admin-api/src/admin_api/app/main.py-951-        bypass is a cross-user read (or write) of somebody's private preferences with no credential
+/app/admin-api/src/admin_api/app/main.py-952-        at all. The two cases have opposite blast radii and had one check, which is how the weaker
+/app/admin-api/src/admin_api/app/main.py-953-        one ended up guarding the stronger door.
+/app/admin-api/src/admin_api/app/main.py-954-
+/app/admin-api/src/admin_api/app/main.py-955-        Dev mode still works; it simply has to name a secret first — a one-line change to a compose
+/app/admin-api/src/admin_api/app/main.py-956-        file against a route that otherwise answers for any person on the instance."""
+--
+/app/admin-api/src/admin_api/app/main.py-1092-        data["memberships"] = memberships
+/app/admin-api/src/admin_api/app/main.py-1093-        user.data = data
+/app/admin-api/src/admin_api/app/main.py-1094-        attributes.flag_modified(user, "data")
+/app/admin-api/src/admin_api/app/main.py-1095-        db.add(user)
+/app/admin-api/src/admin_api/app/main.py-1096-        await db.commit()
+/app/admin-api/src/admin_api/app/main.py-1097-        return {"memberships": memberships}
+/app/admin-api/src/admin_api/app/main.py-1098-
+/app/admin-api/src/admin_api/app/main.py-1099-    # --- internal tier: calendar-sync configs — meeting-api's ICS poller discovers every user
+/app/admin-api/src/admin_api/app/main.py:1100:    #     with a connected feed over the same X-Internal-Secret edge as /internal/validate. The
+/app/admin-api/src/admin_api/app/main.py-1101-    #     secret URL crosses ONLY this internal hop (never a user-facing response). ---
+/app/admin-api/src/admin_api/app/main.py-1102-    @app.get("/internal/calendar-configs", include_in_schema=False)
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c 'grep -Rni -E "Missing token|Invalid internal secret|X-Internal-Secret|Authorization" /app/admin-api/src 2>/dev/null | head -150'
+/app/admin-api/src/admin_api/config_preflight.py:238:        req.add_header("Authorization", f"Bearer {token}")
+/app/admin-api/src/admin_api/app/main.py:9:    - internal: `X-Internal-Secret` == INTERNAL_API_SECRET, FAIL-CLOSED      → /internal/validate
+/app/admin-api/src/admin_api/app/main.py:882:            provided = request.headers.get("X-Internal-Secret", "")
+/app/admin-api/src/admin_api/app/main.py:884:                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid internal secret")
+/app/admin-api/src/admin_api/app/main.py:888:            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+/app/admin-api/src/admin_api/app/main.py:931:    #     (no DB) POSTs mirror updates here over the same X-Internal-Secret internal edge as /internal/
+/app/admin-api/src/admin_api/app/main.py:939:            provided = request.headers.get("X-Internal-Secret", "")
+/app/admin-api/src/admin_api/app/main.py:941:                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid internal secret")
+/app/admin-api/src/admin_api/app/main.py:963:        provided = request.headers.get("X-Internal-Secret", "")
+/app/admin-api/src/admin_api/app/main.py:965:            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid internal secret")
+/app/admin-api/src/admin_api/app/main.py:1100:    #     with a connected feed over the same X-Internal-Secret edge as /internal/validate. The
+/app/admin-api/src/admin_api/app/README.md:4:internal `X-Internal-Secret`) and the gateway's fail-closed `/internal/validate` oracle. `db.py`
+ubuntu@vcn-vexa-vnic:~$
