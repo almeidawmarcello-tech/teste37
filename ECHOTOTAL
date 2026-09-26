@@ -1,0 +1,828 @@
+ubuntu@vcn-vexa-vnic:~/vexa$ docker exec vexa-lite sh -c '
+> set +e
+>
+> echo "=================================================="
+> echo "1. CONFIGURACAO DA SESSAO ATUAL"
+> echo "=================================================="
+>
+> python3 - <<'"'"'PY'"'"'
+> import os, json
+>
+> raw = os.environ.get("VEXA_BOT_CONFIG", "")
+> if not raw:
+>     print("VEXA_BOT_CONFIG AUSENTE")
+> else:
+>     try:
+>         c = json.loads(raw)
+>         for k, v in c.items():
+>             if any(x in k.lower() for x in ["token", "secret", "password", "key"]):
+>                 print(f"{k}=<SECRET>")
+>             elif k == "meetingUrl":
+>                 print(f"{k}={v}")
+>             else:
+>                 print(f"{k}={v}")
+>     except Exception as e:
+>         print("ERRO JSON:", e)
+> PY
+>
+> echo
+> echo "=================================================="
+> echo "2. PROCESSO DO BOT"
+> echo "=================================================="
+>
+> ps -fp 14055
+> echo "--- CMDLINE ---"
+> tr "\0" " " < /proc/14055/cmdline
+> echo
+> echo "--- CWD ---"
+> readlink -f /proc/14055/cwd
+>
+> echo
+> echo "=================================================="
+> echo "3. PROCESSOS DO CHROMIUM"
+> echo "=================================================="
+>
+> ps auxww | grep -E "14055|chromium|playwright" | grep -v grep
+>
+> echo
+> echo "=================================================="
+> echo "4. ARVORE DE PROCESSOS"
+> echo "=================================================="
+>
+> ps -ef --forest | grep -A 20 -B 5 "14055" | grep -v grep
+>
+> echo
+> echo "=================================================="
+> echo "5. DESCOBRIR PACOTE @vexa/join"
+> echo "=================================================="
+>
+> find /app -type d -path "*/node_modules/@vexa/*" 2>/dev/null | sort | head -n 100
+>
+> echo "--- package.json relacionados ---"
+> find /app -type f -name "package.json" 2>/dev/null | grep -E "node_modules|meetings|join" | head -n 100
+>
+> echo
+> echo "=================================================="
+> echo "6. RESOLUCAO NODE DO @vexa/join"
+> echo "=================================================="
+>
+> cd /app/core/meetings/services/bot
+>
+> node --input-type=module - <<'"'"'NODE'"'"'
+> try {
+>   const m = await import("@vexa/join");
+>   console.log("VEXA_JOIN_IMPORT=OK");
+>   console.log("EXPORTS=", Object.keys(m).sort().join(", "));
+> } catch (e) {
+>   console.log("VEXA_JOIN_IMPORT=FAIL");
+>   console.log(String(e));
+> }
+> NODE
+>
+> echo
+> echo "=================================================="
+> echo "7. CODIGO DE JOIN TEAMS"
+> echo "=================================================="
+>
+> grep -RniE "teams|joinMeeting|meetingUrl|AdmissionError|waitingRoom|lobby|page\.goto|goto\(" \
+>   /app/core/meetings/services/bot/dist \
+>   /app/node_modules \
+>   2>/dev/null | head -n 300
+>
+> echo
+> echo "=================================================="
+> echo "8. VARIAVEIS RELACIONADAS A TRANSCRICAO"
+> echo "=================================================="
+>
+> tr "\0" "\n" < /proc/14055/environ | sort | \
+> grep -E "TRANSCRIPTION|LOCAL_STT|STT|WHISPER|MODEL|REDIS" | \
+> sed -E "s/^(.*TOKEN.*)=.*/\1=<SECRET>/"
+>
+> echo
+> echo "=================================================="
+> echo "9. WHISPER LOCAL"
+> echo "=================================================="
+>
+> echo "--- containers ---"
+> docker ps --format "{{.Names}}\t{{.Status}}\t{{.Ports}}"
+>
+> echo "--- whisper health ---"
+> curl -sS --max-time 5 http://vexa-lite-whisper:8000/health 2>&1
+>
+> echo
+> echo
+> echo "--- whisper processes ---"
+> ps auxww | grep -Ei "whisper|uvicorn|python" | grep -v grep
+>
+> echo
+> echo "=================================================="
+> echo "10. VALKEY TRANSCRIPTION STREAM"
+> echo "=================================================="
+>
+> /usr/local/bin/valkey-cli -h 127.0.0.1 -p 6379 XLEN transcription_segments
+> echo "--- GROUPS ---"
+> /usr/local/bin/valkey-cli -h 127.0.0.1 -p 6379 XINFO GROUPS transcription_segments
+>
+> echo
+> echo "=================================================="
+> echo "11. SUPERVISOR"
+> echo "=================================================="
+>
+> supervisorctl status 2>/dev/null
+>
+> echo
+> echo "=================================================="
+> echo "12. POSSIVEIS LOGS"
+> echo "=================================================="
+>
+> find /var/log /app /tmp -maxdepth 5 -type f \
+>   \( -name "*.log" -o -name "*bot*" -o -name "*meeting*" -o -name "*browser*" \) \
+>   2>/dev/null | head -n 150
+>
+> echo
+> echo "=================================================="
+> echo "13. ULTIMOS LOGS DO CONTAINER"
+> echo "=================================================="
+>
+> exit
+> '
+
+==================================================
+1. CONFIGURACAO DA SESSAO ATUAL
+==================================================
+VEXA_BOT_CONFIG AUSENTE
+
+==================================================
+2. PROCESSO DO BOT
+==================================================
+UID          PID    PPID  C STIME TTY          TIME CMD
+root       14055      34  1 20:27 ?        00:00:26 node dist/index.js
+--- CMDLINE ---
+node dist/index.js
+--- CWD ---
+/app/core/meetings/services/bot
+
+==================================================
+3. PROCESSOS DO CHROMIUM
+==================================================
+root       14055  1.2  1.4 11760168 14092 ?      Rsl  20:27   0:26 node dist/index.js
+root       14073  7.1  6.9 34246720 68032 ?      Dsl  20:27   2:22 /ms-playwright/chromium-1194/chrome-linux/chrome --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-update --no-default-browser-check --disable-dev-shm-usage --disable-features=AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --no-sandbox --no-sandbox --disable-setuid-sandbox --disable-blink-features=AutomationControlled,AutomationControlled --disable-infobars --disable-gpu --disable-features=IsolateOrigins,site-per-process --disable-site-isolation-trials --in-process-gpu --use-fake-ui-for-media-stream --use-file-for-fake-video-capture=/dev/null --disable-features=VizDisplayCompositor --password-store=basic --incognito --no-sandbox --disable-setuid-sandbox --disable-features=IsolateOrigins,site-per-process --disable-infobars --disable-gpu --in-process-gpu --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --use-file-for-fake-video-capture=/dev/null --disable-blink-features=AutomationControlled --disable-features=VizDisplayCompositor --disable-site-isolation-trials --lang=en-US --accept-lang=en-US,en --user-data-dir=/tmp/browser-data-pmv1HT --remote-debugging-pipe about:blank
+root       14075  0.0  0.0 33568348 476 ?        Sl   20:28   0:00 /ms-playwright/chromium-1194/chrome-linux/chrome_crashpad_handler --monitor-self --monitor-self-annotation=ptype=crashpad-handler --database=/root/.config/chromium/Crash Reports --annotation=lsb-release=Ubuntu 24.04.3 LTS --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=141.0.7390.37 --initial-client-fd=7 --shared-client-connection
+root       14077  0.0  0.0 33560136 408 ?        S    20:28   0:00 /ms-playwright/chromium-1194/chrome-linux/chrome_crashpad_handler --no-periodic-tasks --monitor-self-annotation=ptype=crashpad-handler --database=/root/.config/chromium/Crash Reports --annotation=lsb-release=Ubuntu 24.04.3 LTS --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=141.0.7390.37 --initial-client-fd=4 --shared-client-connection
+root       14080  0.0  0.1 33871908 1488 ?       S    20:28   0:00 /ms-playwright/chromium-1194/chrome-linux/chrome --type=zygote --no-zygote-sandbox --no-sandbox --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable
+root       14081  0.0  0.1 33871912 1544 ?       S    20:28   0:00 /ms-playwright/chromium-1194/chrome-linux/chrome --type=zygote --no-sandbox --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable
+root       14140  8.4  8.2 1464811876 81064 ?    Rl   20:28   2:44 /ms-playwright/chromium-1194/chrome-linux/chrome --type=renderer --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --autoplay-policy=no-user-gesture-required --disable-back-forward-cache --disable-background-timer-throttling --disable-breakpad --force-color-profile=srgb --remote-debugging-pipe --use-fake-ui-for-media-stream --allow-pre-commit-input --ozone-platform=x11 --disable-gpu-compositing --disable-blink-features=AutomationControlled,AutomationControlled,AutomationControlled --lang=en-US --num-raster-threads=1 --renderer-client-id=5 --time-ticks-at-unix-epoch=-1790380417866689 --launch-time-ticks=74114558827 --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,5368425347060641449,12868786248442625343,2097152 --field-trial-handle=3,i,11004932300148604062,7912585491451361247,262144 --enable-features=CDPScreenshotNewSurface --disable-features=VizDisplayCompositor --variations-seed-version
+root       14157  0.5  2.2 33938788 22364 ?      Sl   20:28   0:11 /ms-playwright/chromium-1194/chrome-linux/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --disable-dev-shm-usage --use-file-for-fake-video-capture=/dev/null --use-angle=swiftshader-webgl --use-gl=angle --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,1801862311382711818,4044738240775372930,524288 --field-trial-handle=3,i,11004932300148604062,7912585491451361247,262144 --enable-features=CDPScreenshotNewSurface --disable-features=VizDisplayCompositor --variations-seed-version
+root       14158  0.0  0.6 33930336 6184 ?       Sl   20:28   0:00 /ms-playwright/chromium-1194/chrome-linux/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=utility --no-sandbox --disable-dev-shm-usage --use-file-for-fake-video-capture=/dev/null --use-angle=swiftshader-webgl --use-gl=angle --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,2271496289015516107,13031386006112274496,524288 --field-trial-handle=3,i,11004932300148604062,7912585491451361247,262144 --enable-features=CDPScreenshotNewSurface --disable-features=VizDisplayCompositor --variations-seed-version
+root       14217  0.0  0.3 33922072 3460 ?       Sl   20:31   0:00 /ms-playwright/chromium-1194/chrome-linux/chrome --type=utility --utility-sub-type=on_device_model.mojom.OnDeviceModelService --lang=en-US --service-sandbox-type=on_device_model_execution --no-sandbox --disable-dev-shm-usage --use-file-for-fake-video-capture=/dev/null --use-angle=swiftshader-webgl --use-gl=angle --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,10791413717195655194,2424823891117964353,524288 --field-trial-handle=3,i,11004932300148604062,7912585491451361247,262144 --enable-features=CDPScreenshotNewSurface --disable-features=VizDisplayCompositor --variations-seed-version
+
+==================================================
+4. ARVORE DE PROCESSOS
+==================================================
+UID          PID    PPID  C STIME TTY          TIME CMD
+root       14682   14668  5 21:01 ?        00:00:00  \_ ps -ef --forest
+root       14663       0  1 21:01 ?        00:00:00 /bin/sh -c curl -sf http://localhost:8056/health > /dev/null || exit 1
+root       14674   14663  1 21:01 ?        00:00:00  \_ curl -sf http://localhost:8056/health
+root        7700    7693  0 13:06 ?        00:00:00  \_ head -150
+root        2305    2298  0 06:31 ?        00:00:00  \_ head -150
+root        2058    2052  0 06:17 ?        00:00:00  \_ head -150
+root           1       0  0 04:50 ?        00:00:20 /usr/bin/python3 /usr/bin/supervisord -n -c /etc/supervisor/conf.d/vexa.conf
+root          20       1  0 04:50 ?        00:04:31 /usr/local/bin/valkey-server 127.0.0.1:6379
+root          21       1  0 04:50 ?        00:00:41 Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
+root          22       1  0 04:50 ?        00:00:12 fluxbox
+root         105      22  0 04:51 ?        00:00:00  \_ [sh] <defunct>
+pulse         23       1  0 04:50 ?        00:00:01 pulseaudio --system --disallow-exit --disallow-module-loading=false --log-level=notice
+root          25       1  0 04:50 ?        00:00:59 x11vnc -display :99 -forever -nopw -shared -localhost -rfbport 5900 -q
+root          26       1  0 04:50 ?        00:00:08 /usr/bin/python3 /usr/bin/websockify --web /usr/share/novnc 6080 localhost:5900
+root          33       1  0 04:50 ?        00:02:31 /opt/venvs/admin/bin/python -m admin_api
+root          34       1  0 04:50 ?        00:02:12 /opt/venvs/runtime/bin/python -m runtime_kernel
+root        1245      34  0 05:46 ?        00:00:19  \_ [node] <defunct>
+root        8756      34  0 14:05 ?        00:00:35  \_ [node] <defunct>
+root       14055      34  1 20:27 ?        00:00:26  \_ node dist/index.js
+root       14073   14055  7 20:27 ?        00:02:22      \_ /ms-playwright/chromium-1194/chrome-linux/chrome --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-update --no-default-browser-check --disable-dev-shm-usage --disable-features=AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --no-sandbox --no-sandbox --disable-setuid-sandbox --disable-blink-features=AutomationControlled,AutomationControlled --disable-infobars --disable-gpu --disable-features=IsolateOrigins,site-per-process --disable-site-isolation-trials --in-process-gpu --use-fake-ui-for-media-stream --use-file-for-fake-video-capture=/dev/null --disable-features=VizDisplayCompositor --password-store=basic --incognito --no-sandbox --disable-setuid-sandbox --disable-features=IsolateOrigins,site-per-process --disable-infobars --disable-gpu --in-process-gpu --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --use-file-for-fake-video-capture=/dev/null --disable-blink-features=AutomationControlled --disable-features=VizDisplayCompositor --disable-site-isolation-trials --lang=en-US --accept-lang=en-US,en --user-data-dir=/tmp/browser-data-pmv1HT --remote-debugging-pipe about:blank
+root       14080   14073  0 20:28 ?        00:00:00          \_ /ms-playwright/chromium-1194/chrome-linux/chrome --type=zygote --no-zygote-sandbox --no-sandbox --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable
+root       14217   14080  0 20:31 ?        00:00:00          |   \_ /ms-playwright/chromium-1194/chrome-linux/chrome --type=utility --utility-sub-type=on_device_model.mojom.OnDeviceModelService --lang=en-US --service-sandbox-type=on_device_model_execution --no-sandbox --disable-dev-shm-usage --use-file-for-fake-video-capture=/dev/null --use-angle=swiftshader-webgl --use-gl=angle --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,10791413717195655194,2424823891117964353,524288 --field-trial-handle=3,i,11004932300148604062,7912585491451361247,262144 --enable-features=CDPScreenshotNewSurface --disable-features=VizDisplayCompositor --variations-seed-version
+root       14081   14073  0 20:28 ?        00:00:00          \_ /ms-playwright/chromium-1194/chrome-linux/chrome --type=zygote --no-sandbox --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable
+root       14140   14081  8 20:28 ?        00:02:44          |   \_ /ms-playwright/chromium-1194/chrome-linux/chrome --type=renderer --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --autoplay-policy=no-user-gesture-required --disable-back-forward-cache --disable-background-timer-throttling --disable-breakpad --force-color-profile=srgb --remote-debugging-pipe --use-fake-ui-for-media-stream --allow-pre-commit-input --ozone-platform=x11 --disable-gpu-compositing --disable-blink-features=AutomationControlled,AutomationControlled,AutomationControlled --lang=en-US --num-raster-threads=1 --renderer-client-id=5 --time-ticks-at-unix-epoch=-1790380417866689 --launch-time-ticks=74114558827 --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,5368425347060641449,12868786248442625343,2097152 --field-trial-handle=3,i,11004932300148604062,7912585491451361247,262144 --enable-features=CDPScreenshotNewSurface --disable-features=VizDisplayCompositor --variations-seed-version
+root       14158   14081  0 20:28 ?        00:00:00          |   \_ /ms-playwright/chromium-1194/chrome-linux/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=utility --no-sandbox --disable-dev-shm-usage --use-file-for-fake-video-capture=/dev/null --use-angle=swiftshader-webgl --use-gl=angle --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,2271496289015516107,13031386006112274496,524288 --field-trial-handle=3,i,11004932300148604062,7912585491451361247,262144 --enable-features=CDPScreenshotNewSurface --disable-features=VizDisplayCompositor --variations-seed-version
+root       14157   14073  0 20:28 ?        00:00:11          \_ /ms-playwright/chromium-1194/chrome-linux/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --disable-dev-shm-usage --use-file-for-fake-video-capture=/dev/null --use-angle=swiftshader-webgl --use-gl=angle --crashpad-handler-pid=14075 --enable-crash-reporter=, --user-data-dir=/tmp/browser-data-pmv1HT --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,1801862311382711818,4044738240775372930,524288 --field-trial-handle=3,i,11004932300148604062,7912585491451361247,262144 --enable-features=CDPScreenshotNewSurface --disable-features=VizDisplayCompositor --variations-seed-version
+root          35       1  0 04:50 ?        00:02:14 /opt/venvs/agent/bin/python3 /opt/venvs/agent/bin/uvicorn control_plane.api:app --host 0.0.0.0 --port 8100 --log-level info
+root          36       1  1 04:50 ?        00:11:35 /opt/venvs/meeting/bin/python -m meeting_api
+root          37       1  0 04:50 ?        00:02:41 /opt/venvs/gateway/bin/python -m gateway
+root         289       1  0 04:52 ?        00:00:51 node server.mjs
+root       14075       1  0 20:28 ?        00:00:00 /ms-playwright/chromium-1194/chrome-linux/chrome_crashpad_handler --monitor-self --monitor-self-annotation=ptype=crashpad-handler --database=/root/.config/chromium/Crash Reports --annotation=lsb-release=Ubuntu 24.04.3 LTS --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=141.0.7390.37 --initial-client-fd=7 --shared-client-connection
+root       14077       1  0 20:28 ?        00:00:00 /ms-playwright/chromium-1194/chrome-linux/chrome_crashpad_handler --no-periodic-tasks --monitor-self-annotation=ptype=crashpad-handler --database=/root/.config/chromium/Crash Reports --annotation=lsb-release=Ubuntu 24.04.3 LTS --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=141.0.7390.37 --initial-client-fd=4 --shared-client-connection
+
+==================================================
+5. DESCOBRIR PACOTE @vexa/join
+==================================================
+--- package.json relacionados ---
+/app/terminal/node_modules/micromark-extension-mdx-expression/package.json
+/app/terminal/node_modules/micromark-util-decode-numeric-character-reference/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_apply_descriptor_update/package.json
+/app/terminal/node_modules/@swc/helpers/_/_async_to_generator/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_apply_descriptor_get/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_static_private_field_update/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_method_init/package.json
+/app/terminal/node_modules/@swc/helpers/_/_extends/package.json
+/app/terminal/node_modules/@swc/helpers/_/_write_only_error/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_method_get/package.json
+/app/terminal/node_modules/@swc/helpers/_/_apply_decorated_descriptor/package.json
+/app/terminal/node_modules/@swc/helpers/_/_object_without_properties/package.json
+/app/terminal/node_modules/@swc/helpers/_/_is_native_reflect_construct/package.json
+/app/terminal/node_modules/@swc/helpers/_/_create_class/package.json
+/app/terminal/node_modules/@swc/helpers/_/_ts_dispose_resources/package.json
+/app/terminal/node_modules/@swc/helpers/_/_define_property/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_static_private_field_destructure/package.json
+/app/terminal/node_modules/@swc/helpers/_/_read_only_error/package.json
+/app/terminal/node_modules/@swc/helpers/_/_object_spread/package.json
+/app/terminal/node_modules/@swc/helpers/_/_inherits_loose/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_static_private_field_spec_set/package.json
+/app/terminal/node_modules/@swc/helpers/_/_update/package.json
+/app/terminal/node_modules/@swc/helpers/_/_tagged_template_literal_loose/package.json
+/app/terminal/node_modules/@swc/helpers/_/_set_prototype_of/package.json
+/app/terminal/node_modules/@swc/helpers/_/_object_spread_props/package.json
+/app/terminal/node_modules/@swc/helpers/_/_get/package.json
+/app/terminal/node_modules/@swc/helpers/_/_to_array/package.json
+/app/terminal/node_modules/@swc/helpers/_/_defaults/package.json
+/app/terminal/node_modules/@swc/helpers/_/_initializer_warning_helper/package.json
+/app/terminal/node_modules/@swc/helpers/_/_ts_metadata/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_static_private_field_spec_get/package.json
+/app/terminal/node_modules/@swc/helpers/_/_identity/package.json
+/app/terminal/node_modules/@swc/helpers/_/_wrap_async_generator/package.json
+/app/terminal/node_modules/@swc/helpers/_/_construct/package.json
+/app/terminal/node_modules/@swc/helpers/_/_iterable_to_array_limit/package.json
+/app/terminal/node_modules/@swc/helpers/_/_ts_decorate/package.json
+/app/terminal/node_modules/@swc/helpers/_/_wrap_native_super/package.json
+/app/terminal/node_modules/@swc/helpers/_/_array_like_to_array/package.json
+/app/terminal/node_modules/@swc/helpers/_/_object_destructuring_empty/package.json
+/app/terminal/node_modules/@swc/helpers/_/_using_ctx/package.json
+/app/terminal/node_modules/@swc/helpers/_/_to_consumable_array/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_field_get/package.json
+/app/terminal/node_modules/@swc/helpers/_/_new_arrow_check/package.json
+/app/terminal/node_modules/@swc/helpers/_/_iterable_to_array/package.json
+/app/terminal/node_modules/@swc/helpers/_/_ts_param/package.json
+/app/terminal/node_modules/@swc/helpers/_/_possible_constructor_return/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_field_set/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_field_destructure/package.json
+/app/terminal/node_modules/@swc/helpers/_/_ts_add_disposable_resource/package.json
+/app/terminal/node_modules/@swc/helpers/_/_throw/package.json
+/app/terminal/node_modules/@swc/helpers/_/_non_iterable_rest/package.json
+/app/terminal/node_modules/@swc/helpers/_/_is_native_function/package.json
+/app/terminal/node_modules/@swc/helpers/_/_await_async_generator/package.json
+/app/terminal/node_modules/@swc/helpers/_/_await_value/package.json
+/app/terminal/node_modules/@swc/helpers/_/_async_generator/package.json
+/app/terminal/node_modules/@swc/helpers/_/_decorate/package.json
+/app/terminal/node_modules/@swc/helpers/_/_unsupported_iterable_to_array/package.json
+/app/terminal/node_modules/@swc/helpers/_/_check_private_redeclaration/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_apply_descriptor_set/package.json
+/app/terminal/node_modules/@swc/helpers/_/_ts_generator/package.json
+/app/terminal/node_modules/@swc/helpers/_/_sliced_to_array_loose/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_static_private_method_get/package.json
+/app/terminal/node_modules/@swc/helpers/_/_skip_first_generator_next/package.json
+/app/terminal/node_modules/@swc/helpers/_/_instanceof/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_apply_descriptor_destructure/package.json
+/app/terminal/node_modules/@swc/helpers/_/_async_iterator/package.json
+/app/terminal/node_modules/@swc/helpers/_/_define_enumerable_properties/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_field_init/package.json
+/app/terminal/node_modules/@swc/helpers/_/_object_without_properties_loose/package.json
+/app/terminal/node_modules/@swc/helpers/_/_super_prop_base/package.json
+/app/terminal/node_modules/@swc/helpers/_/_jsx/package.json
+/app/terminal/node_modules/@swc/helpers/_/_ts_values/package.json
+/app/terminal/node_modules/@swc/helpers/_/_export_star/package.json
+/app/terminal/node_modules/@swc/helpers/_/_array_without_holes/package.json
+/app/terminal/node_modules/@swc/helpers/_/_async_generator_delegate/package.json
+/app/terminal/node_modules/@swc/helpers/_/_sliced_to_array/package.json
+/app/terminal/node_modules/@swc/helpers/_/index/package.json
+/app/terminal/node_modules/@swc/helpers/_/_initializer_define_property/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_field_loose_base/package.json
+/app/terminal/node_modules/@swc/helpers/_/_assert_this_initialized/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_field_loose_key/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_field_update/package.json
+/app/terminal/node_modules/@swc/helpers/_/_to_property_key/package.json
+/app/terminal/node_modules/@swc/helpers/_/_interop_require_wildcard/package.json
+/app/terminal/node_modules/@swc/helpers/_/_call_super/package.json
+/app/terminal/node_modules/@swc/helpers/_/_get_prototype_of/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_private_method_set/package.json
+/app/terminal/node_modules/@swc/helpers/_/_create_super/package.json
+/app/terminal/node_modules/@swc/helpers/_/_interop_require_default/package.json
+/app/terminal/node_modules/@swc/helpers/_/_tagged_template_literal/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_check_private_static_access/package.json
+/app/terminal/node_modules/@swc/helpers/_/_dispose/package.json
+/app/terminal/node_modules/@swc/helpers/_/_using/package.json
+/app/terminal/node_modules/@swc/helpers/_/_apply_decs_2203_r/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_extract_field_descriptor/package.json
+/app/terminal/node_modules/@swc/helpers/_/_iterable_to_array_limit_loose/package.json
+/app/terminal/node_modules/@swc/helpers/_/_to_primitive/package.json
+/app/terminal/node_modules/@swc/helpers/_/_array_with_holes/package.json
+/app/terminal/node_modules/@swc/helpers/_/_class_call_check/package.json
+/app/terminal/node_modules/@swc/helpers/_/_type_of/package.json
+
+==================================================
+6. RESOLUCAO NODE DO @vexa/join
+==================================================
+VEXA_JOIN_IMPORT=OK
+EXPORTS= AdmissionError, AuthSessionError, JOIN_BROWSER_ARGS, TEAMS_AUTH_REDIRECT, TEAMS_OFF_MEETING_ORIGIN, TeamsJoinRedirectError, __esModule, buildJitsiMeetingUrl, buildZoomWebClientUrl, checkForGoogleAdmissionSilent, checkForJitsiAdmissionSilent, checkForTeamsAdmissionSilent, checkForZoomAdmissionSilent, default, defaultBotName, dismissZoomPopups, getJoinBrowserArgs, isMicrosoftLoginUrl, isTeamsMeetingUrl, joinGoogleMeeting, joinJitsiMeeting, joinMeeting, joinMicrosoftTeams, joinZoomMeeting, leaveGoogleMeet, leaveJitsiMeeting, leaveMicrosoftTeams, leaveZoomMeeting, prepareForRecording, prepareForTeamsRecording, resolvePlatform, setHooks, startDebugView, startGoogleRemovalMonitor, startJitsiRemovalMonitor, startTeamsRemovalMonitor, startZoomRemovalMonitor, waitForGoogleMeetingAdmission, waitForJitsiMeetingAdmission, waitForTeamsMeetingAdmission, waitForZoomMeetingAdmission
+
+==================================================
+7. CODIGO DE JOIN TEAMS
+==================================================
+/app/core/meetings/services/bot/dist/contracts.d.ts:55:            time_to_lobby_ms?: number;
+/app/core/meetings/services/bot/dist/contracts.d.ts:56:            time_in_lobby_ms?: number;
+/app/core/meetings/services/bot/dist/contracts.d.ts:59:        lobby_budget_ms?: number;
+/app/core/meetings/services/bot/dist/orchestrator.js:127:    // in the lobby) must not merely arm the force-exit watchdog and SIGKILL — that leaves the join
+/app/core/meetings/services/bot/dist/orchestrator.js:135:    // leave; PRE-ACTIVE (still knocking in the lobby) ⇒ abort the join → WITHDRAW the ask-to-join
+/app/core/meetings/services/bot/dist/orchestrator.js:137:    // lobby `leave` did nothing. reconfigure + voice acts are handled by the live pipeline adapter
+/app/core/meetings/services/bot/dist/orchestrator.js:177:                    ...joinEvidenceFor('error', 'requested', { reachedLobby: false }, unreachableDetail),
+/app/core/meetings/services/bot/dist/orchestrator.js:194:        // command on the bot's channel; when it arrives while the bot is still knocking in the lobby, the
+/app/core/meetings/services/bot/dist/orchestrator.js:197:        // placement) dropped every lobby-phase leave, so a Stop in the waiting room left the bot asking to
+/app/core/meetings/services/bot/dist/orchestrator.js:204:            // Race the (possibly long, lobby-blocked) join against a pre-active abort. A stop/SIGTERM in the
+/app/core/meetings/services/bot/dist/orchestrator.js:257:            // (the AdmissionError text — e.g. the Zoom "auth_required" / "host not started" cause); fall
+/app/core/meetings/services/bot/dist/orchestrator.js:261:            // regardless (which it used to be, and which claims a lobby the bot may never have seen). The
+/app/core/meetings/services/bot/dist/orchestrator.js:263:            // the two from disagreeing — and it is the field the taxonomy reads to tell a lobby expiry
+/app/core/meetings/services/bot/dist/orchestrator.js:321:     *  completed). If it is still PRE-ACTIVE (`joining`/`awaiting_admission`, blocked in the lobby),
+/app/core/meetings/services/bot/dist/orchestrator.js:323:     *  SIGKILLed into a lobby orphan (Bug 2). After the run ended both are no-ops (resolvers fired). */
+/app/core/meetings/services/bot/dist/orchestrator.js:329:            // Pre-active: unblock the lobby wait so run() can withdraw + terminate. (Idempotent: a promise
+/app/core/meetings/services/bot/dist/capture-bridge.js:167: * out like makeSpeakerHintSink / makeTeamsCaptionSink so it is offline-provable WITHOUT a
+/app/core/meetings/services/bot/dist/capture-bridge.js:219: * Build the Teams caption sink — the EXACT closure the bridge exposes as `__vexaTeamsCaption`,
+/app/core/meetings/services/bot/dist/capture-bridge.js:230:export function makeTeamsCaptionSink(telemetry, log = (m) => console.log(m), warn = (m) => console.warn(m),
+/app/core/meetings/services/bot/dist/capture-bridge.js:232: *  the caption TEXT is Teams' ASR and never becomes our transcript. */
+/app/core/meetings/services/bot/dist/capture-bridge.js:247:            const record = { type: 'caption', t, platform: 'teams', name, text, stable: stable !== false, lane: 'mixed' };
+/app/core/meetings/services/bot/dist/capture-bridge.js:262:            log(`[bot] teams-caption ${record.stable ? 'stable' : 'partial'} ${name}: ${text.slice(0, 80)}`);
+/app/core/meetings/services/bot/dist/capture-bridge.js:276: * The code path is kept and unchanged, behind this flag: set VEXA_TEAMS_ENABLE_CAPTIONS=1 to switch
+/app/core/meetings/services/bot/dist/capture-bridge.js:284:const TEAMS_ENABLE_CAPTIONS = process.env.VEXA_TEAMS_ENABLE_CAPTIONS === '1';
+/app/core/meetings/services/bot/dist/capture-bridge.js:286:const TEAMS_ENABLE_CAPTIONS_ATTEMPTS = Math.max(1, Number(process.env.VEXA_TEAMS_ENABLE_CAPTIONS_ATTEMPTS || 3));
+/app/core/meetings/services/bot/dist/capture-bridge.js:288: * Turn Teams live captions ON for the BOT's own session — ported from v0.10.6/v0.10.7
+/app/core/meetings/services/bot/dist/capture-bridge.js:289: * `services/vexa-bot/core/src/platforms/msteams/captions.ts` (byte-identical across those tags).
+/app/core/meetings/services/bot/dist/capture-bridge.js:294: * The renderer wrapper is checked afterwards, but its ABSENCE is not failure: Teams mounts it only
+/app/core/meetings/services/bot/dist/capture-bridge.js:302:export async function enableTeamsLiveCaptions(page, log = (m) => console.log(m)) {
+/app/core/meetings/services/bot/dist/capture-bridge.js:308:            log('[bot] teams-captions: already enabled');
+/app/core/meetings/services/bot/dist/capture-bridge.js:349:        log(`[bot] teams-captions: clicked "${opened.clicked}" (${opened.path})`);
+/app/core/meetings/services/bot/dist/capture-bridge.js:364:            log(sub ? `[bot] teams-captions: clicked submenu "${sub}"` : '[bot] teams-captions: live-captions item not in the submenu');
+/app/core/meetings/services/bot/dist/capture-bridge.js:371:            ? '[bot] teams-captions: enabled (renderer wrapper present)'
+/app/core/meetings/services/bot/dist/capture-bridge.js:372:            : '[bot] teams-captions: menu clicked, renderer wrapper not present yet — the watcher will report it');
+/app/core/meetings/services/bot/dist/capture-bridge.js:381: * Run the enable flow at join with a short retry, then report. The retry exists because the Teams
+/app/core/meetings/services/bot/dist/capture-bridge.js:390:export async function runTeamsCaptionEnable(page, log = (m) => console.log(m), attempts = TEAMS_ENABLE_CAPTIONS_ATTEMPTS, waitBetweenMs = 5000,
+/app/core/meetings/services/bot/dist/capture-bridge.js:396:        last = await enableTeamsLiveCaptions(page, log).catch((e) => ({ outcome: 'failed', reason: 'error', detail: String(e).slice(0, 200) }));
+/app/core/meetings/services/bot/dist/capture-bridge.js:398:            log(`[bot] teams-captions: enable ${last.outcome} on attempt ${i}/${attempts}`);
+/app/core/meetings/services/bot/dist/capture-bridge.js:401:        log(`[bot] teams-captions: enable attempt ${i}/${attempts} failed (${last.reason}) — ${last.detail ?? ''}`);
+/app/core/meetings/services/bot/dist/capture-bridge.js:407:        platform: 'teams',
+/app/core/meetings/services/bot/dist/capture-bridge.js:417:    log(`[TeamsCaptions] observation ${JSON.stringify(observation)}`);
+/app/core/meetings/services/bot/dist/capture-bridge.js:419:        onObservation?.('teams-captions', observation, observation.tMs);
+/app/core/meetings/services/bot/dist/capture-bridge.js:422:    log('[bot] teams-captions: could not switch captions on — continuing on the voice-level-outline '
+/app/core/meetings/services/bot/dist/capture-bridge.js:470:    // gmeet + teams + zoom all inherit it. Before this, the only error-shaped line on the bot's stdout
+/app/core/meetings/services/bot/dist/capture-bridge.js:471:    // for a Teams join was the platform's OWN `Unhandled rejection {isTrusted:true}` — a bare DOM Event
+/app/core/meetings/services/bot/dist/capture-bridge.js:472:    // that misdirected #593 (it's Teams' VQE worklet, unrelated to our Node throw). This handler names
+/app/core/meetings/services/bot/dist/capture-bridge.js:496:    // Zoom/Teams expose NO per-participant <audio> in the DOM — install the WebRTC hook so each
+/app/core/meetings/services/bot/dist/capture-bridge.js:501:    // runs at document-start, after the bundle above has defined window.VexaBrowserUtils. (L4 — Zoom/Teams.)
+/app/core/meetings/services/bot/dist/capture-bridge.js:541: * mixed lane (Zoom/Teams) it instead pumps the single mixed stream + active-speaker hints.
+/app/core/meetings/services/bot/dist/capture-bridge.js:554:    const useMix = mixed && !perTrack; // Teams/Jitsi: the pyannote mixed lane
+/app/core/meetings/services/bot/dist/capture-bridge.js:573:        // Teams/Jitsi (useMix): one combined stream → the pyannote mixed lane. Zoom + gmeet: per-channel —
+/app/core/meetings/services/bot/dist/capture-bridge.js:590:    // mixed lane "who is lit" hint (Zoom/Teams active-speaker → the namer's time window).
+/app/core/meetings/services/bot/dist/capture-bridge.js:593:    // Teams live captions: Teams' own ASR names the speaker, which is a second, independent naming
+/app/core/meetings/services/bot/dist/capture-bridge.js:597:    const { sink: onTeamsCaption, count: captionsBridgeCrossed } = makeTeamsCaptionSink(telemetry, undefined, undefined, mixed ? (name, tMs) => pipeline.recordCaptionName?.(name, tMs) : undefined);
+/app/core/meetings/services/bot/dist/capture-bridge.js:607:    // page-emitted lives in the page console ([TeamsSpeakers]/[JitsiSpeakers] logs);
+/app/core/meetings/services/bot/dist/capture-bridge.js:613:        console.log(`[bot] hint-counters bridge-crossed=${hintsBridgeCrossed()} pipeline-received=${c?.received ?? 0} binder-matched=${c?.matched ?? 0} binder-missed=${c?.missed ?? 0} teams-captions=${captionsBridgeCrossed()} csrc-crossed=${csrcBridgeCrossed()} observations=${obsBridgeCrossed()}`);
+/app/core/meetings/services/bot/dist/capture-bridge.js:622:    await page.exposeFunction('__vexaTeamsCaption', onTeamsCaption).catch(() => { });
+/app/core/meetings/services/bot/dist/capture-bridge.js:649:    await page.evaluate(async ({ isMixed, isPerTrack, isJitsi, isTeams, isZoom, botName, mainAudioGraceMs, mainAudioSilenceMs, mainAudioEnergyRms }) => {
+/app/core/meetings/services/bot/dist/capture-bridge.js:652:            // Zoom/Teams/Jitsi ride the WebRTC hook (installRemoteAudioHook, installed pre-nav), which mirrors
+/app/core/meetings/services/bot/dist/capture-bridge.js:660:            //   • MIXED (Teams/Jitsi — per-track topology NOT yet witnessed; Teams may use remapped active-
+/app/core/meetings/services/bot/dist/capture-bridge.js:672:                // and it is the SAME job GmeetChannelBinder does for Meet's glow and TrackNamer for the Teams
+/app/core/meetings/services/bot/dist/capture-bridge.js:683:                            mode: isTeams ? 'additive' : 'exclusive',
+/app/core/meetings/services/bot/dist/capture-bridge.js:851:            // ── MIXED lane (Teams/Jitsi): one combined stream, pyannote re-separates speakers ──
+/app/core/meetings/services/bot/dist/capture-bridge.js:853:            // Teams slot-remap OR a single mixed stream would defeat per-track, and the mix + pyannote is robust
+/app/core/meetings/services/bot/dist/capture-bridge.js:854:            // to both. Teams delivers the COMPLETE meeting audio as a single server-side mix whose track id is
+/app/core/meetings/services/bot/dist/capture-bridge.js:858:            // Teams mix ONLY the mainAudio track. Jitsi keeps combining all tracks (its topology isn't witnessed).
+/app/core/meetings/services/bot/dist/capture-bridge.js:889:                if (isTeams && streams.length) {
+/app/core/meetings/services/bot/dist/capture-bridge.js:890:                    // selectTeamsMixStreams (bundled via VexaBrowserUtils) prefers the server mix and FAILS OPEN
+/app/core/meetings/services/bot/dist/capture-bridge.js:894:                    const select = w.VexaBrowserUtils?.selectTeamsMixStreams;
+/app/core/meetings/services/bot/dist/capture-bridge.js:902:                        if (!w.__vexaTeamsMainAudioDead && provedSilent?.({
+/app/core/meetings/services/bot/dist/capture-bridge.js:908:                            w.__vexaTeamsMainAudioDead = true;
+/app/core/meetings/services/bot/dist/capture-bridge.js:916:                                platform: isTeams ? 'teams' : 'mixed',
+/app/core/meetings/services/bot/dist/capture-bridge.js:925:                            firstMissMs: w.__vexaTeamsNoMainSince ?? null,
+/app/core/meetings/services/bot/dist/capture-bridge.js:928:                            mainAudioSilent: !!w.__vexaTeamsMainAudioDead,
+/app/core/meetings/services/bot/dist/capture-bridge.js:932:                            w.__vexaTeamsNoMainSince = null;
+/app/core/meetings/services/bot/dist/capture-bridge.js:935:                            w.__vexaTeamsNoMainSince = w.__vexaTeamsNoMainSince || Date.now();
+/app/core/meetings/services/bot/dist/capture-bridge.js:1061:            if (isTeams) {
+/app/core/meetings/services/bot/dist/capture-bridge.js:1062:                // Teams contributes the WHO signal the mixed audio can't carry: the voice-level
+/app/core/meetings/services/bot/dist/capture-bridge.js:1063:                // "blue-square" outline watcher (@vexa/teams-capture — the SAME module the desktop
+/app/core/meetings/services/bot/dist/capture-bridge.js:1067:                if (w.VexaBrowserUtils?.createTeamsSpeakers && !w.__vexaTeamsSpeakers) {
+/app/core/meetings/services/bot/dist/capture-bridge.js:1068:                    w.__vexaTeamsSpeakers = w.VexaBrowserUtils.createTeamsSpeakers({
+/app/core/meetings/services/bot/dist/capture-bridge.js:1070:                        log: (m) => w.logBot?.('[TeamsSpeakers] ' + m),
+/app/core/meetings/services/bot/dist/capture-bridge.js:1076:                            w.logBot?.('[TeamsSpeakers] observation ' + JSON.stringify(o));
+/app/core/meetings/services/bot/dist/capture-bridge.js:1077:                            w.__vexaObservation?.('teams-speakers', o, Date.now());
+/app/core/meetings/services/bot/dist/capture-bridge.js:1083:                    w.__vexaTeamsHealthTimer = globalThis.setInterval(() => {
+/app/core/meetings/services/bot/dist/capture-bridge.js:1085:                            const h = w.__vexaTeamsSpeakers?.health?.();
+/app/core/meetings/services/bot/dist/capture-bridge.js:1087:                                w.logBot?.(`[TeamsSpeakers] health found=${h.found} observable=${h.observable} `
+/app/core/meetings/services/bot/dist/capture-bridge.js:1093:                            const c = w.__vexaTeamsCaptions?.health?.();
+/app/core/meetings/services/bot/dist/capture-bridge.js:1095:                                w.logBot?.(`[TeamsCaptions] health present=${c.present} wrapper=${c.wrapperSelector ?? 'none'} `
+/app/core/meetings/services/bot/dist/capture-bridge.js:1102:                // Teams live captions — a SECOND, independent attribution source, read only when the
+/app/core/meetings/services/bot/dist/capture-bridge.js:1108:                if (w.VexaBrowserUtils?.createTeamsCaptions && !w.__vexaTeamsCaptions) {
+/app/core/meetings/services/bot/dist/capture-bridge.js:1110:                        w.__vexaTeamsCaptions = w.VexaBrowserUtils.createTeamsCaptions({
+/app/core/meetings/services/bot/dist/capture-bridge.js:1112:                            log: (m) => w.logBot?.('[TeamsCaptions] ' + m),
+/app/core/meetings/services/bot/dist/capture-bridge.js:1116:                            onCaption: (c) => w.__vexaTeamsCaption?.(c.speaker, c.text, c.tMs, c.stable),
+/app/core/meetings/services/bot/dist/capture-bridge.js:1118:                                w.logBot?.('[TeamsCaptions] observation ' + JSON.stringify(o));
+/app/core/meetings/services/bot/dist/capture-bridge.js:1119:                                w.__vexaObservation?.('teams-captions', o, Date.now());
+/app/core/meetings/services/bot/dist/capture-bridge.js:1124:                        w.__vexaTeamsCaptions = null;
+/app/core/meetings/services/bot/dist/capture-bridge.js:1125:                        w.logBot?.('[TeamsCaptions] init failed — continuing without captions: ' + String(e));
+/app/core/meetings/services/bot/dist/capture-bridge.js:1128:                else if (!w.VexaBrowserUtils?.createTeamsCaptions) {
+/app/core/meetings/services/bot/dist/capture-bridge.js:1129:                    w.logBot?.('[TeamsCaptions] not in the browser bundle — continuing without captions');
+/app/core/meetings/services/bot/dist/capture-bridge.js:1173:    }, { isMixed: mixed, isPerTrack: perTrack, isJitsi: jitsi, isTeams: inv.platform === 'teams', isZoom: inv.platform === 'zoom', botName: inv.botName,
+/app/core/meetings/services/bot/dist/capture-bridge.js:1174:        // How long the Teams lane waits for the server mix before capturing every track instead.
+/app/core/meetings/services/bot/dist/capture-bridge.js:1175:        mainAudioGraceMs: Number(process.env.VEXA_TEAMS_MAIN_AUDIO_GRACE_MS || 15000),
+/app/core/meetings/services/bot/dist/capture-bridge.js:1177:        mainAudioSilenceMs: Number(process.env.VEXA_TEAMS_MAIN_AUDIO_SILENCE_MS || 20000),
+/app/core/meetings/services/bot/dist/capture-bridge.js:1178:        mainAudioEnergyRms: Number(process.env.VEXA_TEAMS_MAIN_AUDIO_ENERGY_RMS || 0.006) }).catch((e) => {
+/app/core/meetings/services/bot/dist/capture-bridge.js:1182:    // it was measured not to need (see TEAMS_ENABLE_CAPTIONS). Opt back in with
+/app/core/meetings/services/bot/dist/capture-bridge.js:1183:    // VEXA_TEAMS_ENABLE_CAPTIONS=1; the reader still consumes captions a meeting already has on.
+/app/core/meetings/services/bot/dist/capture-bridge.js:1184:    if (inv.platform === 'teams' && TEAMS_ENABLE_CAPTIONS) {
+/app/core/meetings/services/bot/dist/capture-bridge.js:1185:        void runTeamsCaptionEnable(page, undefined, undefined, undefined, onObservation)
+/app/core/meetings/services/bot/dist/capture-bridge.js:1200:                if (w.__vexaTeamsHealthTimer) {
+/app/core/meetings/services/bot/dist/capture-bridge.js:1201:                    globalThis.clearInterval(w.__vexaTeamsHealthTimer);
+/app/core/meetings/services/bot/dist/capture-bridge.js:1202:                    w.__vexaTeamsHealthTimer = null;
+/app/core/meetings/services/bot/dist/capture-bridge.js:1207:                w.__vexaTeamsSpeakers?.destroy?.();
+/app/core/meetings/services/bot/dist/capture-bridge.js:1208:                w.__vexaTeamsSpeakers = null;
+/app/core/meetings/services/bot/dist/capture-bridge.js:1214:                w.__vexaTeamsCaptions?.destroy?.();
+/app/core/meetings/services/bot/dist/capture-bridge.js:1215:                w.__vexaTeamsCaptions = null;
+/app/core/meetings/services/bot/dist/capture-bridge.js:1383:            if (platform === 'teams')
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:7: * 83 consecutive production join failures came to carry `reason: None`, and how a Teams refusal and
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:8: * a Meet lobby expiry ended up sharing one label.
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:45:/** We reached the waiting room and nobody ever answered; the lobby budget ran out. */
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:50: | 'never_reached_lobby'
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:79:        time_to_lobby_ms?: number;
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:80:        time_in_lobby_ms?: number;
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:83:    lobby_budget_ms?: number;
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:88:/** How much of the issued lobby budget must be burned for a lobby exit to read as EXPIRY rather
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:89: *  than a refusal. Mirrors the Python `LOBBY_EXPIRY_FRACTION` — see there for why it is not 1.0. */
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:90:export declare const LOBBY_EXPIRY_FRACTION = 0.9;
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:100: *  3. Reached the lobby: the only exits without admission are a denial (case 1) or the budget
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:101: *     expiring. Burned ≥ `LOBBY_EXPIRY_FRACTION` of the issued budget ⇒ expiry; out well inside it
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:103: *  4. Never reached the lobby but was on the page ⇒ no admission signal ever appeared.
+/app/core/meetings/services/bot/dist/join-evidence.d.ts:115: * timing is ABSENT, never a zero: "zero ms in the lobby" and "nobody measured" are different facts.
+/app/core/meetings/services/bot/dist/join-evidence.js:4:/** How much of the issued lobby budget must be burned for a lobby exit to read as EXPIRY rather
+/app/core/meetings/services/bot/dist/join-evidence.js:5: *  than a refusal. Mirrors the Python `LOBBY_EXPIRY_FRACTION` — see there for why it is not 1.0. */
+/app/core/meetings/services/bot/dist/join-evidence.js:6:export const LOBBY_EXPIRY_FRACTION = 0.9;
+/app/core/meetings/services/bot/dist/join-evidence.js:18:    'teams_auth_redirect',
+/app/core/meetings/services/bot/dist/join-evidence.js:19:    'teams_off_meeting_origin',
+/app/core/meetings/services/bot/dist/join-evidence.js:50:    never_reached_lobby: 'system_fault',
+/app/core/meetings/services/bot/dist/join-evidence.js:83: *  3. Reached the lobby: the only exits without admission are a denial (case 1) or the budget
+/app/core/meetings/services/bot/dist/join-evidence.js:84: *     expiring. Burned ≥ `LOBBY_EXPIRY_FRACTION` of the issued budget ⇒ expiry; out well inside it
+/app/core/meetings/services/bot/dist/join-evidence.js:86: *  4. Never reached the lobby but was on the page ⇒ no admission signal ever appeared.
+/app/core/meetings/services/bot/dist/join-evidence.js:102:        if (signals.reachedLobby) {
+/app/core/meetings/services/bot/dist/join-evidence.js:103:            const inLobby = millis(signals.timeInLobbyMs);
+/app/core/meetings/services/bot/dist/join-evidence.js:104:            const budget = millis(signals.lobbyBudgetMs);
+/app/core/meetings/services/bot/dist/join-evidence.js:105:            if (inLobby !== undefined && budget) {
+/app/core/meetings/services/bot/dist/join-evidence.js:106:                return inLobby >= budget * LOBBY_EXPIRY_FRACTION ? 'awaiting_admission_timeout' : 'awaiting_admission_rejected';
+/app/core/meetings/services/bot/dist/join-evidence.js:112:        if (signals.reachedLobby === false)
+/app/core/meetings/services/bot/dist/join-evidence.js:113:            return 'never_reached_lobby';
+/app/core/meetings/services/bot/dist/join-evidence.js:145: * timing is ABSENT, never a zero: "zero ms in the lobby" and "nobody measured" are different facts.
+/app/core/meetings/services/bot/dist/join-evidence.js:163:        const toLobby = millis(signals.timeToLobbyMs);
+/app/core/meetings/services/bot/dist/join-evidence.js:164:        const inLobby = millis(signals.timeInLobbyMs);
+/app/core/meetings/services/bot/dist/join-evidence.js:166:        if (toLobby !== undefined)
+/app/core/meetings/services/bot/dist/join-evidence.js:167:            timings.time_to_lobby_ms = toLobby;
+/app/core/meetings/services/bot/dist/join-evidence.js:168:        if (inLobby !== undefined)
+/app/core/meetings/services/bot/dist/join-evidence.js:169:            timings.time_in_lobby_ms = inLobby;
+/app/core/meetings/services/bot/dist/join-evidence.js:174:        const budget = millis(signals.lobbyBudgetMs);
+/app/core/meetings/services/bot/dist/join-evidence.js:176:            evidence.lobby_budget_ms = budget;
+/app/core/meetings/services/bot/dist/config.js:30:    return p === 'zoom' || p === 'teams' || p === 'jitsi';
+/app/core/meetings/services/bot/dist/config.js:35: *  streams, 0 teardowns). Teams/Jitsi stay on the mix until witnessed the same way — a Teams
+/app/core/meetings/services/bot/dist/telemetry.js:486:        // Teams' own CC lane — a SECOND, independent attribution source beside the outline hints. It
+/app/core/meetings/services/bot/dist/signal-upload.js:59:        // Teams CC. Absent on every non-Teams platform and on Teams meetings whose tenant blocks
+/app/core/meetings/services/bot/dist/pipeline.js:9: *   1. picks the lane on inv.platform (google_meet → native per-channel; teams → CSRC virtual
+/app/core/meetings/services/bot/dist/pipeline.js:20: * v0.12 ports; Teams now wires @vexa/mixed-pipeline's CSRC/GMeet lane while Zoom/Jitsi retain
+/app/core/meetings/services/bot/dist/pipeline.js:24:import { ChunkedTranscriber, TeamsCsrcGmeetPipeline, } from '@vexa/mixed-pipeline';
+/app/core/meetings/services/bot/dist/pipeline.js:29: *  Teams' voice-level outline is 'dom-outline'; Zoom's active-speaker DOM poll and
+/app/core/meetings/services/bot/dist/pipeline.js:33:    return platform === 'teams' ? 'dom-outline' : 'dom-active';
+/app/core/meetings/services/bot/dist/pipeline.js:92: *  time), so Teams/Zoom transcripts only appeared after a reload (the REST read re-derives it). */
+/app/core/meetings/services/bot/dist/pipeline.js:130:/** A CSRC-owned Teams row -> transcript.v1. `speaker_key` is the stable transport identity,
+/app/core/meetings/services/bot/dist/pipeline.js:133:function teamsToBotSegment(segment) {
+/app/core/meetings/services/bot/dist/pipeline.js:160:/** Build the Teams-only CSRC virtual-channel lane. The shared GMeet-compatible buffer owns
+/app/core/meetings/services/bot/dist/pipeline.js:163:function createTeamsBotPipeline(transcribe, sink, onError, createTranscriber = (options) => new TeamsCsrcGmeetPipeline(options), onObservation, selfName) {
+/app/core/meetings/services/bot/dist/pipeline.js:165:    const reportError = onError ?? ((error) => console.error(`[bot] pipeline(teams-csrc): ${String(error)}`));
+/app/core/meetings/services/bot/dist/pipeline.js:172:                : sink.publish(teamsToBotSegment(segment));
+/app/core/meetings/services/bot/dist/pipeline.js:177:                onObservation?.('teams-csrc-ownership-rejected', { segment, intervals }, segment.endMs);
+/app/core/meetings/services/bot/dist/pipeline.js:318: *   • CSRC/GMeet (createTeamsBotPipeline) — Teams, whose one mixed track carries RTP
+/app/core/meetings/services/bot/dist/pipeline.js:320: *     shared GMeet window, so Teams gets per-channel overlap safety without per-track streams.
+/app/core/meetings/services/bot/dist/pipeline.js:327:    if (inv.platform === 'teams') {
+/app/core/meetings/services/bot/dist/pipeline.js:328:        return createTeamsBotPipeline(transcribe, sink, opts.onError, opts.createTeamsTranscriber, opts.onObservation, inv.botName);
+/app/core/meetings/services/bot/dist/pipeline.js:331:    // segmenter (Teams returned above via its CSRC/GMeet lane).
+/app/core/meetings/services/bot/dist/index.js:13: * │    • JoinDriver     → @vexa/join.joinMeeting over a @vexa/remote-browser page               ✅ WIRED (L4)
+/app/core/meetings/services/bot/dist/index.js:79:    const waitingRoom = al.waitingRoomTimeout ?? 300_000;
+/app/core/meetings/services/bot/dist/index.js:81:    const floor = Math.max(everyoneLeftMs, noOneJoined, waitingRoom) + MARGIN_MS;
+/app/core/meetings/services/bot/dist/index.js:167:        // Teams is the current blast radius. Its CSRC lanes need the same complete per-speaker pending
+/app/core/meetings/services/bot/dist/index.js:170:        liveEnvelope: inv.platform === 'teams' ? 'speaker-snapshot' : 'segment',
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:79: * Like `TeamsCaptionRecord` it is deliberately NOT a `HintEvent`: a hint feeds the name binder, and
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:120:    /** Which producer emitted it: 'teams-speakers' · 'teams-captions' · 'mixed' · 'csrc' · 'bot'. */
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:151: * out like makeSpeakerHintSink / makeTeamsCaptionSink so it is offline-provable WITHOUT a
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:177:/** One Teams live-caption entry as it crosses the capture bridge — the caption lane's
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:178: *  captured-signal record. Teams' OWN ASR attributes each caption to a named participant, so this
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:183:export interface TeamsCaptionRecord {
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:186:    platform: 'teams';
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:199:    captureCaption?: (caption: TeamsCaptionRecord) => void;
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:202: * Build the Teams caption sink — the EXACT closure the bridge exposes as `__vexaTeamsCaption`,
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:213:export declare function makeTeamsCaptionSink(telemetry?: CaptionCapableSink, log?: (m: string) => void, warn?: (m: string) => void,
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:215: *  the caption TEXT is Teams' ASR and never becomes our transcript. */
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:224:export interface TeamsCaptionEnableResult {
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:234:export interface TeamsCaptionsEnableFailedObservation {
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:236:    platform: 'teams';
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:244: * Turn Teams live captions ON for the BOT's own session — ported from v0.10.6/v0.10.7
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:245: * `services/vexa-bot/core/src/platforms/msteams/captions.ts` (byte-identical across those tags).
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:250: * The renderer wrapper is checked afterwards, but its ABSENCE is not failure: Teams mounts it only
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:258:export declare function enableTeamsLiveCaptions(page: Page, log?: (m: string) => void): Promise<TeamsCaptionEnableResult>;
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:260: * Run the enable flow at join with a short retry, then report. The retry exists because the Teams
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:269:export declare function runTeamsCaptionEnable(page: Page, log?: (m: string) => void, attempts?: number, waitBetweenMs?: number,
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:272:onObservation?: (source: string, obs: unknown, tMs?: number) => void): Promise<TeamsCaptionEnableResult>;
+/app/core/meetings/services/bot/dist/capture-bridge.d.ts:291: * mixed lane (Zoom/Teams) it instead pumps the single mixed stream + active-speaker hints.
+/app/core/meetings/services/bot/dist/signal-upload.d.ts:3:/** The files one session leaves: the frame/hint tape, the STT round-trip sidecar, the Teams CC
+/app/core/meetings/services/bot/dist/join-driver.d.ts:13: * Map @vexa/join's typed AdmissionError `outcome` → a JoinOutcome (G1).
+/app/core/meetings/services/bot/dist/join-driver.d.ts:15: * The admission wait THROWS an `AdmissionError` carrying a precise `outcome`; without this the
+/app/core/meetings/services/bot/dist/join-driver.d.ts:19: * `lobby_timeout` → `timeout` → `awaiting_admission_timeout` (transient, a legit retry); a `join_failure`
+/app/core/meetings/services/bot/dist/join-driver.d.ts:30: * Teams refusal at ~20s and a Meet lobby expiry at ~13min were one undifferentiated label. The
+/app/core/meetings/services/bot/dist/join-driver.d.ts:38:    /** Mark the FIRST lobby observation. Idempotent — the platform may report it repeatedly. */
+/app/core/meetings/services/bot/dist/join-driver.d.ts:39:    markLobby(): void;
+/app/core/meetings/services/bot/dist/telemetry.d.ts:85:     * loader validates line by line — so the tape would stop being replayable the moment a Teams
+/app/core/meetings/services/bot/dist/telemetry.d.ts:119:     *    "platform":"teams","image_version":"a1b2c3d","started_at":"2026-08-11T09:00:00.000Z"}
+/app/core/meetings/services/bot/dist/telemetry.d.ts:120:     *   {"type":"observation","t":1754899200123,"source":"teams-speakers","lane":"mixed",
+/app/core/meetings/services/bot/dist/telemetry.d.ts:121:     *    "observation":{"type":"signal-absent","platform":"teams",…}}
+/app/core/meetings/services/bot/dist/ports.d.ts:21: *  a message (the @vexa/join AdmissionError text: "auth_required: …", "host did not start …") — but
+/app/core/meetings/services/bot/dist/ports.d.ts:28:    /** The human cause text (e.g. the AdmissionError message). Rides onto lifecycle.v1 `reason`. */
+/app/core/meetings/services/bot/dist/ports.d.ts:36: *  The verdict enum alone cannot tell a ~20s platform refusal from a ~13min lobby expiry — both
+/app/core/meetings/services/bot/dist/ports.d.ts:44:    /** ms from join start to the FIRST lobby/`awaiting_admission` report. Absent ⇒ never got there. */
+/app/core/meetings/services/bot/dist/ports.d.ts:45:    timeToLobbyMs?: number;
+/app/core/meetings/services/bot/dist/ports.d.ts:46:    /** ms spent waiting in the lobby before the verdict landed. */
+/app/core/meetings/services/bot/dist/ports.d.ts:47:    timeInLobbyMs?: number;
+/app/core/meetings/services/bot/dist/ports.d.ts:50:    /** The lobby budget the control plane ISSUED for this run (`automaticLeave.waitingRoomTimeout`).
+/app/core/meetings/services/bot/dist/ports.d.ts:52:    lobbyBudgetMs?: number;
+/app/core/meetings/services/bot/dist/ports.d.ts:54:     *  and no lobby appeared), distinct from `undefined` (nobody looked). */
+/app/core/meetings/services/bot/dist/ports.d.ts:55:    reachedLobby?: boolean;
+/app/core/meetings/services/bot/dist/ports.d.ts:59:/** Drives the platform join. The real adapter wraps @vexa/join.joinMeeting + admission
+/app/core/meetings/services/bot/dist/ports.d.ts:71:     *  ask-to-join (Teams/Meet have a Cancel affordance) and, as a guaranteed drop, close the page so
+/app/core/meetings/services/bot/dist/ports.d.ts:76:     *  still need evidence: a non-`AdmissionError` THROW (its stack unwinds past every return) and a
+/app/core/meetings/services/bot/dist/ports.d.ts:77:     *  pre-active ABORT (the user stopped us mid-lobby, so the join never returns at all). MUST NOT
+/app/core/meetings/services/bot/dist/browser-utils.global.js:581:  // ../../modules/mixed-capture-core/dist/teams-main-audio.js
+/app/core/meetings/services/bot/dist/browser-utils.global.js:582:  var TEAMS_MAIN_AUDIO_GRACE_MS = 15e3;
+/app/core/meetings/services/bot/dist/browser-utils.global.js:583:  var TEAMS_MAIN_AUDIO_SILENCE_MS = 2e4;
+/app/core/meetings/services/bot/dist/browser-utils.global.js:584:  function mainAudioProvedSilent({ captureStartedMs, energeticMs, nowMs, silenceMs = TEAMS_MAIN_AUDIO_SILENCE_MS }) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:593:  function selectTeamsMixStreams(streams, { firstMissMs, nowMs, graceMs = TEAMS_MAIN_AUDIO_GRACE_MS, mainAudioSilent = false, mainAudioCapturedMs = 0 }) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:603:          platform: "teams",
+/app/core/meetings/services/bot/dist/browser-utils.global.js:619:        platform: "teams",
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1296:  // ../../modules/teams-capture/dist/msteams-speakers.js
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1297:  var teamsParticipantSelectors = [
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1301:    // The stream wrapper is the canonical participant surface: Teams carries the
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1318:  var teamsRosterPanelSelectors = [
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1329:  var teamsRosterEntrySelectors = [
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1338:  var teamsNameSelectors = [
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1353:  var teamsMeetingContainerSelectors = [
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1376:  var TEAMS_CONTROL_LABELS = new Set([
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1396:  var TEAMS_TIMER_LABEL = /^(?:\d{1,2}:)?\d{1,2}:\d{2}$/;
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1397:  var TEAMS_CLOCK_PREFIX = /^\d{1,2}:\d{2}/;
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1398:  var TEAMS_MACHINE_TOKEN = /^(?:[a-z0-9]+(?:[-_][a-z0-9]+)+|[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+|\d+)$/;
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1399:  var TEAMS_UNCANONICAL_BARE_HANDLE = new RegExp("^\\p{Ll}[\\p{Ll}\\p{M}\\p{Nd}]*$", "u");
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1400:  var TEAMS_PLACEHOLDER_NAMES = /* @__PURE__ */ new Set([
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1469:  function isTeamsDisplayNameCandidate(value, ctx) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1474:    if (TEAMS_PLACEHOLDER_NAMES.has(normalized))
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1476:    if (TEAMS_PLACEHOLDER_NAMES.has(normalizeDisplayNameForIdentity(candidate)))
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1480:    if (TEAMS_UNCANONICAL_BARE_HANDLE.test(candidate) && !isRosterCorroborated(candidate, ctx))
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1482:    return !TEAMS_CONTROL_LABELS.has(normalized) && !TEAMS_TIMER_LABEL.test(normalized) && !TEAMS_CLOCK_PREFIX.test(normalized) && !TEAMS_MACHINE_TOKEN.test(candidate);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1484:  function rawTeamsNameFromStream(element) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1491:  function readTeamsRosterPanelState(root = document, opts) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1496:    for (const panelSel of teamsRosterPanelSelectors) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1504:        for (const entrySel of teamsRosterEntrySelectors) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1519:            const name = extractTeamsSpeakerName(entry, { nameContext: { rosterAuthoritative: true } });
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1531:  function extractTeamsSpeakerName(element, opts) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1532:    for (const raw of teamsRawDisplayStrings(element, opts)) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1533:      if (isTeamsDisplayNameCandidate(raw, opts?.nameContext))
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1538:  function teamsRawDisplayStrings(element, opts) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1545:    push(rawTeamsNameFromStream(element));
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1546:    for (const selector of teamsNameSelectors) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1560:    for (const text of teamsLeafTexts(element))
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1567:    for (const raw of teamsRawDisplayStrings(element, opts)) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1573:  function teamsLeafTexts(element) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1587:  function createTeamsSpeakers(opts) {
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1604:        log(`[TeamsSpeakers] observation-delivery-failed type=${observation.type}`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1621:          element.dataset.vexaGeneratedId = "teams-id-" + Math.random().toString(36).substr(2, 9);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1627:    const extractName = (element) => extractTeamsSpeakerName(element);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1767:        // WHICH token, so if Teams' real indicator is a class we do not know about,
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1838:        platform: "teams",
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1843:      log("[TeamsSpeakers] signal-absent reason=outline-missing signal=dom-outline " + participantSurfaceShape(element));
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1856:        platform: "teams",
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1864:      log(`[TeamsSpeakers] NAME-SOURCES-ABSENT tiles=${coverage.found} observable=${coverage.observable} roster-panel=${lastPanelCount} \u2014 no tile can hint and no surface has yielded a name`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1869:        platform: "teams",
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1877:      log(`[TeamsSpeakers] indicator-fired indicator=${indicator}${detail ? ` token=${detail}` : ""}`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1887:        platform: "teams",
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1895:      log(`\u26A0\uFE0F [TeamsSpeakers] WARN indicator-silent observable=${coverage.observable} found=${coverage.found} windowMs=${indicatorSilentMs} \u2014 no candidate indicator has fired; this producer is emitting no speaker attribution at all`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1921:        platform: "teams",
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1930:        log(`[TeamsSpeakers] name-unresolved-delivery-failed edge=${edge}`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1933:      log(`[TeamsSpeakers] name-unresolved reason=${observation.reason} signal=${observation.signal} edge=${edge}`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:1961:      log(`${state === "speaking" ? "\u{1F3A4}" : "\u{1F507}"} [TeamsSpeakers] ${state === "speaking" ? "SPEAKER_START" : "SPEAKER_END"}: ${identity.name} (${identity.id})`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2024:      log(`\u{1F5D1}\uFE0F [TeamsSpeakers] Removed: ${identity.name} (${identity.id})`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2036:      log(`\u{1F441}\uFE0F [TeamsSpeakers] Observing: ${identity.name} (${identity.id})`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2063:      if (!isTeamsDisplayNameCandidate(trimmed, nameContext))
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2071:      deliver({ type: "roster-name", platform: "teams", name: trimmed, scan: seenCount, tMs: now() });
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2072:      log(`[TeamsSpeakers] roster-name sighting ${seenCount}/${rosterEmitScans}`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2075:      const allSelectors = [...teamsParticipantSelectors, '[role="menuitem"]'];
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2084:        panelState = readTeamsRosterPanelState(document, { selfName: opts.selfName });
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2100:              const rosterName = extractTeamsSpeakerName(surface, { nameContext });
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2120:      const usableNames = new Set([...namesThisScan].filter((n) => isTeamsDisplayNameCandidate(n, nameContext) && !isSelfDisplayName(n, opts.selfName)));
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2122:      const distinctUsablePanelNames = new Set(nonSelfPanelEntries.filter((name) => !!name && isTeamsDisplayNameCandidate(name, nameContext)));
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2128:        deliver({ type: "roster-coverage", platform: "teams", participants, named: usableNames.size, tMs: now() });
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2129:        log(`[TeamsSpeakers] roster-coverage named=${usableNames.size} participants=${participants}`);
+/app/core/meetings/services/bot/dist/browser-utils.global.js:2135:      log(`\u{1F50D} [TeamsSpeakers] Scanned ${found} participants, observing ${observable} with signal (signal-absent ${found - observable})`);
+
+==================================================
+8. VARIAVEIS RELACIONADAS A TRANSCRICAO
+==================================================
+ANTHROPIC_DEFAULT_HAIKU_MODEL=
+ANTHROPIC_DEFAULT_OPUS_MODEL=
+ANTHROPIC_DEFAULT_SONNET_MODEL=
+ANTHROPIC_MODEL=
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_URL=redis://localhost:6379/0
+TRANSCRIPTION_MODEL=
+TRANSCRIPTION_SERVICE_TOKEN=<SECRET>
+TRANSCRIPTION_SERVICE_URL=http://vexa-lite-whisper:8000
+VEXA_AGENT_MODEL=
+VEXA_MEETING_MODEL=
+
+==================================================
+9. WHISPER LOCAL
+==================================================
+--- containers ---
+sh: 107: docker: not found
+--- whisper health ---
+curl: (28) Operation timed out after 5000 milliseconds with 0 bytes received
+
+
+--- whisper processes ---
+root           1  0.0  0.2  35944  2768 ?        Ss   04:50   0:21 /usr/bin/python3 /usr/bin/supervisord -n -c /etc/supervisor/conf.d/vexa.conf
+root          26  0.0  0.1  59000  1512 ?        S    04:50   0:09 /usr/bin/python3 /usr/bin/websockify --web /usr/share/novnc 6080 localhost:5900
+root          33  0.2  0.3 393084  3636 ?        Sl   04:50   2:31 /opt/venvs/admin/bin/python -m admin_api
+root          34  0.2  1.2 324576 11724 ?        Sl   04:50   2:12 /opt/venvs/runtime/bin/python -m runtime_kernel
+root          35  0.2  0.5 769032  5384 ?        Sl   04:50   2:14 /opt/venvs/agent/bin/python3 /opt/venvs/agent/bin/uvicorn control_plane.api:app --host 0.0.0.0 --port 8100 --log-level info
+root          36  1.1  2.5 498088 24920 ?        Sl   04:50  11:36 /opt/venvs/meeting/bin/python -m meeting_api
+root          37  0.2  1.1 384232 11268 ?        Sl   04:50   2:42 /opt/venvs/gateway/bin/python -m gateway
+
+==================================================
+10. VALKEY TRANSCRIPTION STREAM
+==================================================
+0
+--- GROUPS ---
+name
+agent_copilot
+consumers
+1
+pending
+0
+last-delivered-id
+0-0
+entries-read
+
+lag
+0
+name
+collector_group
+consumers
+1
+pending
+0
+last-delivered-id
+0-0
+entries-read
+
+lag
+0
+
+==================================================
+11. SUPERVISOR
+==================================================
+vexa:admin-api                   RUNNING   pid 33, uptime 16:12:51
+vexa:agent-api                   RUNNING   pid 35, uptime 16:12:52
+vexa:fluxbox                     RUNNING   pid 22, uptime 16:12:52
+vexa:gateway                     RUNNING   pid 37, uptime 16:12:51
+vexa:meeting-api                 RUNNING   pid 36, uptime 16:12:52
+vexa:pulseaudio                  RUNNING   pid 23, uptime 16:12:52
+vexa:pulseaudio-setup            EXITED    Sep 26 04:50 AM
+vexa:redis                       RUNNING   pid 20, uptime 16:12:52
+vexa:runtime                     RUNNING   pid 34, uptime 16:12:52
+vexa:terminal                    RUNNING   pid 289, uptime 16:10:42
+vexa:websockify                  RUNNING   pid 26, uptime 16:12:52
+vexa:x11vnc                      RUNNING   pid 25, uptime 16:12:52
+vexa:xvfb                        RUNNING   pid 21, uptime 16:12:52
+
+==================================================
+12. POSSIVEIS LOGS
+==================================================
+/var/log/alternatives.log
+/var/log/dpkg.log
+/var/log/bootstrap.log
+/var/log/apt/history.log
+/var/log/apt/term.log
+/var/log/supervisor/supervisord.log
+/var/log/fontconfig.log
+/app/agent/control_plane/meeting_steering.py
+/app/agent/control_plane/__pycache__/meeting_steering.cpython-312.pyc
+/app/agent/worker/meeting.py
+/app/agent/worker/__pycache__/meeting.cpython-312.pyc
+/app/agent/contracts/invoke.v1/golden/Invocation.meeting-completed.json
+/app/agent/contracts/event.v1/golden/Event.meeting.json
+/app/agent/contracts/workspace.v1/golden/EntityFrontmatter.meeting.json
+/app/agent/workspace-seeds/default/agents/meeting.md
+/app/agent/workspace-seeds/default/agents/meeting-ui.md
+/app/agent/workspace-seeds/default/agents/meeting.schema.json
+/app/agent/workspace-seeds/default/views/meeting.tsx
+/app/agent/workspace-seeds/finos/agents/meeting.md
+/app/agent/workspace-seeds/finos/agents/meeting-ui.md
+/app/agent/workspace-seeds/finos/agents/meeting.schema.json
+/app/agent/workspace-seeds/finos/views/meeting.tsx
+/app/admin-api/src/admin_api/schema/MIGRATION-0002-meeting-active-dedup-index.md
+/app/admin-api/src/admin_api/schema/MIGRATION-0005-meeting-event-order.md
+/app/admin-api/src/admin_api/schema/MIGRATION-0003-default-max-concurrent-bots-3.md
+/app/meeting-api/src/meeting_api/collector/meeting_link.py
+/app/terminal/node_modules/react-dom/server.browser.js
+/app/terminal/node_modules/react-dom/cjs/react-dom-server.browser.development.js
+/app/terminal/node_modules/react-dom/cjs/react-dom-server-legacy.browser.development.js
+/app/terminal/node_modules/react-dom/cjs/react-dom-server-legacy.browser.production.js
+/app/terminal/node_modules/react-dom/cjs/react-dom-server.browser.production.js
+/app/terminal/node_modules/react-dom/static.browser.js
+/app/terminal/node_modules/debug/src/browser.js
+/app/terminal/node_modules/@types/react-dom/static.browser.d.ts
+/app/terminal/node_modules/@types/react-dom/server.browser.d.ts
+/app/terminal/node_modules/ws/browser.js
+/app/terminal/node_modules/vfile/lib/minproc.browser.js
+/app/terminal/node_modules/vfile/lib/minpath.browser.d.ts.map
+/app/terminal/node_modules/vfile/lib/minpath.browser.js
+/app/terminal/node_modules/vfile/lib/minproc.browser.d.ts
+/app/terminal/node_modules/vfile/lib/minproc.browser.d.ts.map
+/app/terminal/node_modules/vfile/lib/minurl.browser.js
+/app/terminal/node_modules/vfile/lib/minpath.browser.d.ts
+/app/terminal/node_modules/vfile/lib/minurl.browser.d.ts
+/app/terminal/node_modules/vfile/lib/minurl.browser.d.ts.map
+/app/terminal/node_modules/preact/compat/server.browser.js
+/app/terminal/node_modules/caniuse-lite/data/browserVersions.js
+/app/terminal/node_modules/caniuse-lite/data/browsers.js
+/app/terminal/node_modules/nanoid/index.browser.cjs
+/app/terminal/node_modules/nanoid/async/index.browser.cjs
+/app/terminal/node_modules/nanoid/async/index.browser.js
+/app/terminal/node_modules/nanoid/index.browser.js
+/app/terminal/node_modules/picocolors/picocolors.browser.js
+/app/terminal/node_modules/detect-node-es/esm/browser.js
+/app/terminal/node_modules/detect-node-es/es5/browser.js
+/app/terminal/node_modules/source-map/lib/read-wasm-browser.js
+/app/terminal/src/canvas/__tests__/meetingHealth.test.ts
+/app/terminal/src/canvas/__tests__/meetingCanvasDefaultView.test.tsx
+/app/terminal/src/canvas/meetingHealth.ts
+/app/terminal/src/app/meetingRoute.ts
+/app/terminal/src/app/__tests__/meetingRoute.test.ts
+/app/terminal/src/surfaces/meetingPrep.tsx
+/app/terminal/src/surfaces/meetingGroups.ts
+/app/terminal/src/surfaces/meetingModel.ts
+/app/terminal/src/surfaces/meetingCookbook.ts
+/app/terminal/src/surfaces/meetingLive.ts
+/app/terminal/src/surfaces/__tests__/meetingLiveMapping.test.ts
+/app/terminal/src/surfaces/__tests__/meetingsOnboarding.test.tsx
+/app/terminal/src/surfaces/__tests__/meetingHeaderControls.test.tsx
+/app/terminal/src/surfaces/__tests__/meetingActions.test.tsx
+/app/terminal/src/surfaces/__tests__/meetingId.test.ts
+/app/terminal/src/surfaces/__tests__/meetingNotFound.test.tsx
+/app/terminal/src/surfaces/__tests__/meetingGroups.test.ts
+/app/terminal/src/surfaces/__tests__/meetingPrepDraft.test.tsx
+/app/terminal/src/surfaces/__tests__/meetingCookbook.test.ts
+/app/terminal/src/surfaces/__tests__/meetingLiveReducer.test.ts
+/app/terminal/src/surfaces/meeting.tsx
+/app/terminal/src/surfaces/meetingId.ts
+/app/terminal/src/surfaces/meetingsOnboarding.tsx
+/app/browser-utils.global.js
+/app/core/seam/meeting-status-ws/tests/test_seam_meeting_status.py
+/app/core/flows/tests/test_meeting_identity.py
+/app/core/flows/tests/test_bot_teardown.py
+/app/core/flows/tests/test_no_meetings.py
+/app/core/flows/src/flows_steps/meeting.py
+/app/core/agent/worker/meeting.py
+/app/core/agent/control_plane/meeting_steering.py
+/app/core/agent/tests/test_meeting_steering.py
+/app/core/agent/tests/test_meeting_postprocess_offline.py
+/app/core/agent/eval/replay/own_bot_bridge.py
+/app/core/meetings/services/bot/build-browser-utils.mjs
+/tmp/vexa-workloads/mtg-2-8685356f.log
+/tmp/vexa-workloads/mtg-3-501af670.log
+/tmp/vexa-workloads/mtg-4-6fe0a57a.log
+/tmp/browser-data-pmv1HT/Default/Session Storage/000003.log
+/tmp/browser-data-pmv1HT/Default/shared_proto_db/000003.log
+/tmp/browser-data-pmv1HT/Default/shared_proto_db/metadata/000003.log
+/tmp/browser-data-pmv1HT/Default/Extension Rules/000003.log
+/tmp/browser-data-pmv1HT/Default/GCM Store/Encryption/000003.log
+/tmp/browser-data-pmv1HT/Default/GCM Store/000003.log
+/tmp/browser-data-pmv1HT/Default/Extension Scripts/000003.log
+/tmp/browser-data-pmv1HT/Default/Site Characteristics Database/000003.log
+/tmp/browser-data-pmv1HT/Default/Extension State/000003.log
+/tmp/browser-data-pmv1HT/Default/Local Storage/leveldb/000003.log
+/tmp/browser-data-pmv1HT/Default/Sync Data/LevelDB/000003.log
+/tmp/captured-signal/8685356f-7a5e-4107-b67a-8f6b75af29b6.botlog.txt
+/tmp/captured-signal/6fe0a57a-ff78-459f-a256-3aecb93ab825.botlog.txt
+/tmp/captured-signal/501af670-8924-413c-9e73-289914cc2d61.botlog.txt
+
+==================================================
+13. ULTIMOS LOGS DO CONTAINER
+==================================================
+ubuntu@vcn-vexa-vnic:~/vexa$
+ubuntu@vcn-vexa-vnic:~/vexa$
