@@ -1,0 +1,5 @@
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c '. /run/vexa/key.env; SECRET=$(tr "\0" "\n" < /proc/37/environ | sed -n "s/^INTERNAL_API_SECRET=//p"); curl -sS -o /tmp/auth_response -w "HTTP=%{http_code}\n" -X POST http://127.0.0.1:8001/internal/validate -H "Content-Type: application/json" -H "X-Internal-Secret: $SECRET" -d "{\"token\":\"$VEXA_API_KEY\"}"; echo "RESPONSE:"; cat /tmp/auth_response; echo'
+HTTP=200
+RESPONSE:
+{"user_id":1,"scopes":["bot","tx"],"max_concurrent":3,"email":"self-host@vexa.ai","is_admin":false}
+ubuntu@vcn-vexa-vnic:~$
