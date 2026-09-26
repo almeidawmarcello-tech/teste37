@@ -1,0 +1,340 @@
+ubuntu@vcn-vexa-vnic:~/vexa$ docker exec vexa-lite sh -c 'cd /app/core/meetings/services/bot && echo "===== CONFIG.JS =====" && sed -n "1,125p" dist/config.js && echo "===== BOT PROCESS ENV =====" && tr "\0" "\n" < /proc/14055/environ | sort | grep -E "^(VEXA_|MEETING|TEAMS|PLATFORM|BOT|CONNECTION|NATIVE|INVOCATION|REDIS|INTERNAL)"'
+===== CONFIG.JS =====
+/**
+ * invocation.v1 boot config (P14) — the bot's "constructor".
+ *
+ * The container is started with ONE JSON env var, `VEXA_BOT_CONFIG`, holding an
+ * `invocation.v1` object. We validate it at boot against the PUBLISHED schema
+ * (`meetings/contracts/invocation.v1/invocation.schema.json`, loaded by PATH — the
+ * goldens are the spec, P8) with ajv — the same validator the contract's own
+ * `validate.mjs` uses, so the bot can NEVER drift from the contract. A parse/validation
+ * failure is fatal: the caller maps it to a lifecycle.v1 `failed` / `validation_error`
+ * (fail-fast, P14). Secrets ride in this contract (token / internalSecret / S3 keys) —
+ * never logged (P14/P15).
+ *
+ * `Invocation` is the typed view the rest of the bot depends on. It is a hand-written
+ * mirror of the schema's `#/$defs/Invocation` (no zod — zero new runtime deps; ajv is the
+ * single source of truth at runtime, this interface is the compile-time shadow).
+ */
+import { Ajv2020 } from 'ajv/dist/2020.js';
+import addFormatsDefault from 'ajv-formats';
+import { readFileSync } from 'node:fs';
+// verbatimModuleSyntax (tsconfig.base): the CJS default export of ajv-formats isn't
+// synthesized as callable, so bind its call signature explicitly. Runtime is unchanged.
+const addFormats = addFormatsDefault;
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+/** True for platforms that ride the MIXED capture lane (one combined WebRTC audio
+ *  stream + pyannote separation); google_meet rides the per-channel gmeet lane.
+ *  The ONE predicate the browser hook, the capture bridge, and the pipeline pick
+ *  must all agree on — never restate it inline. */
+export function isMixedLanePlatform(p) {
+    return p === 'zoom' || p === 'teams' || p === 'jitsi';
+}
+/** True for mixed-lane platforms whose per-participant WebRTC streams are confirmed stable
+ *  (one track per person, no remapping) — captured PER-TRACK and transcribed through the
+ *  per-channel (gmeet) engine instead of the pyannote mix. Zoom is verified live (10 stable
+ *  streams, 0 teardowns). Teams/Jitsi stay on the mix until witnessed the same way — a Teams
+ *  active-speaker SLOT model would defeat per-track, so it is NOT assumed. Both the capture
+ *  bridge (which capture) and the pipeline pick (which engine) read THIS one predicate. */
+export function isPerTrackLanePlatform(p) {
+    return p === 'zoom';
+}
+/** Thrown when VEXA_BOT_CONFIG is missing / not JSON / off-contract. The composition root
+ *  maps this to lifecycle.v1 failed(validation_error, failure_stage=requested). */
+export class InvocationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'InvocationError';
+    }
+}
+const HERE = dirname(fileURLToPath(import.meta.url));
+// src/ → ../../../contracts/invocation.v1/  (meetings/services/bot/src → meetings/contracts/…)
+const SCHEMA_PATH = join(HERE, '..', '..', '..', 'contracts', 'invocation.v1', 'invocation.schema.json');
+let _validator;
+function validator() {
+    if (_validator)
+        return _validator;
+    const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8'));
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema(schema);
+    const validate = ajv.compile({ $ref: `${schema.$id}#/$defs/Invocation` });
+    _validator = { ajv, validate };
+    return _validator;
+}
+/** Parse + validate a raw JSON string against invocation.v1, or throw InvocationError. */
+export function parseInvocation(raw) {
+    if (!raw || !raw.trim())
+        throw new InvocationError('invocation.v1: VEXA_BOT_CONFIG env is missing or empty');
+    let data;
+    try {
+        data = JSON.parse(raw);
+    }
+    catch (e) {
+        throw new InvocationError(`invocation.v1: VEXA_BOT_CONFIG is not valid JSON — ${e.message}`);
+    }
+    const { ajv, validate } = validator();
+    if (!validate(data)) {
+        throw new InvocationError(`invocation.v1: VEXA_BOT_CONFIG failed validation — ${ajv.errorsText(validate.errors)}`);
+    }
+    return data;
+}
+/** Boot helper — read VEXA_BOT_CONFIG from the environment and validate it (P7: config by env). */
+export function loadInvocation(env = process.env) {
+    return parseInvocation(env.VEXA_BOT_CONFIG);
+}
+const SPEAKER_STREAM_ENV = [
+    ['minAudioDuration', 'BOT_SPEAKER_MIN_AUDIO_SEC'],
+    ['submitInterval', 'BOT_SPEAKER_SUBMIT_INTERVAL_SEC'],
+    ['confirmThreshold', 'BOT_SPEAKER_CONFIRM_THRESHOLD'],
+    ['maxBufferDuration', 'BOT_SPEAKER_MAX_BUFFER_SEC'],
+    ['idleTimeoutSec', 'BOT_SPEAKER_IDLE_TIMEOUT_SEC'],
+];
+/** Read optional Meet speaker-stream tuning knobs from the bot environment. */
+export function speakerStreamConfigFromEnv(env = process.env, warn = (message) => console.warn(`[bot] ${message}`)) {
+    const config = {};
+    let configured = false;
+    for (const [property, key] of SPEAKER_STREAM_ENV) {
+        const raw = env[key];
+        if (raw === undefined || raw.trim() === '')
+            continue;
+        const value = Number(raw);
+        const valid = Number.isFinite(value) && value > 0 &&
+            (property !== 'confirmThreshold' || Number.isInteger(value));
+        if (!valid) {
+            warn(`${key}=${JSON.stringify(raw)} is invalid; using the built-in speaker-stream default`);
+            continue;
+        }
+        config[property] = value;
+        configured = true;
+    }
+    return configured ? config : undefined;
+}
+//# sourceMappingURL=config.js.map===== BOT PROCESS ENV =====
+BOT_ALONE_SILENCE_WINDOW_MS=
+BOT_COMMAND=/usr/local/bin/vexa-bot-launch
+BOT_CONFIG={"platform":"teams","meetingUrl":"https://teams.live.com/meet/9341609038466?p=H13JxYtiYCoyXy1I4R","botName":"Vexa EI","passcode":"H13JxYtiYCoyXy1I4R","nativeMeetingId":"9341609038466","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtZWV0aW5nX2lkIjo0LCJ1c2VyX2lkIjoxLCJwbGF0Zm9ybSI6InRlYW1zIiwibmF0aXZlX21lZXRpbmdfaWQiOiI5MzQxNjA5MDM4NDY2Iiwic2NvcGUiOiJ0cmFuc2NyaWJlOndyaXRlIiwiaXNzIjoibWVldGluZy1hcGkiLCJhdWQiOiJ0cmFuc2NyaXB0aW9uLWNvbGxlY3RvciIsImlhdCI6MTc5MDQ1NDQzMSwiZXhwIjoxNzkwNDcyNDMxLCJqdGkiOiI0OTJkZTgyZS03MjMyLTQzNzctODU0Mi1jZDEyZTZmZjQwMWIifQ.on-lsjXYroDOTMswHnpqNGu10oa9WrniwQiyS8rxlnQ","connectionId":"6fe0a57a-ff78-459f-a256-3aecb93ab825","meeting_id":4,"redisUrl":"redis://localhost:6379/0","language":"pt","transcriptionTier":"realtime","transcribeEnabled":true,"transcriptionServiceUrl":"https://transcription.vexa.ai","transcriptionServiceToken":"vxa_tx_JV2TKcDi59efh6tF8VYhgXXlwI9RqgAQ","recordingEnabled":false,"captureSignalEnabled":true,"recordingUploadUrl":"http://localhost:8080/internal/recordings/upload","meetingApiCallbackUrl":"http://localhost:8080/bots/internal/callback/lifecycle","internalSecret":"6059d8960f5a315ac46f4918b8dd5e974134af4f54ee8d7d05fbc3bf7cc1380e","automaticLeave":{"waitingRoomTimeout":900000}}
+BOT_SPEAKER_CONFIRM_THRESHOLD=
+BOT_SPEAKER_IDLE_TIMEOUT_SEC=
+BOT_SPEAKER_MAX_BUFFER_SEC=
+BOT_SPEAKER_MIN_AUDIO_SEC=
+BOT_SPEAKER_SUBMIT_INTERVAL_SEC=
+INTERNAL_API_SECRET=6059d8960f5a315ac46f4918b8dd5e974134af4f54ee8d7d05fbc3bf7cc1380e
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_URL=redis://localhost:6379/0
+VEXA_AGENT_DEFAULT_SUBJECT=u_live
+VEXA_AGENT_MODEL=
+VEXA_API_KEY=
+VEXA_BOT_API_KEY=
+VEXA_BOT_CONFIG={"platform":"teams","meetingUrl":"https://teams.live.com/meet/9341609038466?p=H13JxYtiYCoyXy1I4R","botName":"Vexa EI","passcode":"H13JxYtiYCoyXy1I4R","nativeMeetingId":"9341609038466","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtZWV0aW5nX2lkIjo0LCJ1c2VyX2lkIjoxLCJwbGF0Zm9ybSI6InRlYW1zIiwibmF0aXZlX21lZXRpbmdfaWQiOiI5MzQxNjA5MDM4NDY2Iiwic2NvcGUiOiJ0cmFuc2NyaWJlOndyaXRlIiwiaXNzIjoibWVldGluZy1hcGkiLCJhdWQiOiJ0cmFuc2NyaXB0aW9uLWNvbGxlY3RvciIsImlhdCI6MTc5MDQ1NDQzMSwiZXhwIjoxNzkwNDcyNDMxLCJqdGkiOiI0OTJkZTgyZS03MjMyLTQzNzctODU0Mi1jZDEyZTZmZjQwMWIifQ.on-lsjXYroDOTMswHnpqNGu10oa9WrniwQiyS8rxlnQ","connectionId":"6fe0a57a-ff78-459f-a256-3aecb93ab825","meeting_id":4,"redisUrl":"redis://localhost:6379/0","language":"pt","transcriptionTier":"realtime","transcribeEnabled":true,"transcriptionServiceUrl":"https://transcription.vexa.ai","transcriptionServiceToken":"vxa_tx_JV2TKcDi59efh6tF8VYhgXXlwI9RqgAQ","recordingEnabled":false,"captureSignalEnabled":true,"recordingUploadUrl":"http://localhost:8080/internal/recordings/upload","meetingApiCallbackUrl":"http://localhost:8080/bots/internal/callback/lifecycle","internalSecret":"6059d8960f5a315ac46f4918b8dd5e974134af4f54ee8d7d05fbc3bf7cc1380e","automaticLeave":{"waitingRoomTimeout":900000}}
+VEXA_DISPATCH_SIGNING_KEY=dev-dispatch-signing-key
+VEXA_HF_CACHE=/opt/hf-cache
+VEXA_MEETING_MODEL=
+VEXA_PUBLIC_API_URL=http://localhost:8056
+VEXA_SERVICE_AUTHORITY_CONFIG=
+VEXA_SERVICE_AUTHORITY_SECRET=
+VEXA_SYSTEM_WEBHOOK_ALLOW_PRIVATE_HTTP=false
+VEXA_SYSTEM_WEBHOOK_SECRET=
+VEXA_SYSTEM_WEBHOOK_TIMEOUT_S=10
+VEXA_SYSTEM_WEBHOOK_URL=
+ubuntu@vcn-vexa-vnic:~/vexa$ docker exec vexa-lite sh -c 'echo "===== TODAS AS VARIAVEIS DO BOT 14055 ====="; tr "\0" "\n" < /proc/14055/environ | sort; echo "===== CONFIG.JS ====="; cd /app/core/meetings/services/bot; sed -n "1,125p" dist/config.js'
+===== TODAS AS VARIAVEIS DO BOT 14055 =====
+ADMIN_API_TOKEN=d233efe4b323c7065989b5a96a6bc15a486ccdd80d74cf443b1dfb0b0ff7e31d
+ADMIN_TOKEN=
+AGENT_IMAGE=lite-process
+AGENT_WORKER_COMMAND=/usr/local/bin/vexa-agent-worker
+AGENT_WORKER_IMAGE=lite-process
+ANTHROPIC_API_KEY=
+ANTHROPIC_AUTH_TOKEN=
+ANTHROPIC_BASE_URL=
+ANTHROPIC_DEFAULT_HAIKU_MODEL=
+ANTHROPIC_DEFAULT_OPUS_MODEL=
+ANTHROPIC_DEFAULT_SONNET_MODEL=
+ANTHROPIC_MODEL=
+BOT_ALONE_SILENCE_WINDOW_MS=
+BOT_COMMAND=/usr/local/bin/vexa-bot-launch
+BOT_CONFIG={"platform":"teams","meetingUrl":"https://teams.live.com/meet/9341609038466?p=H13JxYtiYCoyXy1I4R","botName":"Vexa EI","passcode":"H13JxYtiYCoyXy1I4R","nativeMeetingId":"9341609038466","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtZWV0aW5nX2lkIjo0LCJ1c2VyX2lkIjoxLCJwbGF0Zm9ybSI6InRlYW1zIiwibmF0aXZlX21lZXRpbmdfaWQiOiI5MzQxNjA5MDM4NDY2Iiwic2NvcGUiOiJ0cmFuc2NyaWJlOndyaXRlIiwiaXNzIjoibWVldGluZy1hcGkiLCJhdWQiOiJ0cmFuc2NyaXB0aW9uLWNvbGxlY3RvciIsImlhdCI6MTc5MDQ1NDQzMSwiZXhwIjoxNzkwNDcyNDMxLCJqdGkiOiI0OTJkZTgyZS03MjMyLTQzNzctODU0Mi1jZDEyZTZmZjQwMWIifQ.on-lsjXYroDOTMswHnpqNGu10oa9WrniwQiyS8rxlnQ","connectionId":"6fe0a57a-ff78-459f-a256-3aecb93ab825","meeting_id":4,"redisUrl":"redis://localhost:6379/0","language":"pt","transcriptionTier":"realtime","transcribeEnabled":true,"transcriptionServiceUrl":"https://transcription.vexa.ai","transcriptionServiceToken":"vxa_tx_JV2TKcDi59efh6tF8VYhgXXlwI9RqgAQ","recordingEnabled":false,"captureSignalEnabled":true,"recordingUploadUrl":"http://localhost:8080/internal/recordings/upload","meetingApiCallbackUrl":"http://localhost:8080/bots/internal/callback/lifecycle","internalSecret":"6059d8960f5a315ac46f4918b8dd5e974134af4f54ee8d7d05fbc3bf7cc1380e","automaticLeave":{"waitingRoomTimeout":900000}}
+BOT_SPEAKER_CONFIRM_THRESHOLD=
+BOT_SPEAKER_IDLE_TIMEOUT_SEC=
+BOT_SPEAKER_MAX_BUFFER_SEC=
+BOT_SPEAKER_MIN_AUDIO_SEC=
+BOT_SPEAKER_SUBMIT_INTERVAL_SEC=
+BROWSER_IMAGE=lite-process
+CLAUDE_CODE_OAUTH_TOKEN=
+DB_HOST=vexa-lite-postgres
+DB_NAME=vexa
+DB_PASSWORD=postgres
+DB_PORT=5432
+DB_USER=postgres
+DEBIAN_FRONTEND=noninteractive
+DEFAULT_BOT_NAME=Vexa
+DISPLAY=:99
+GUARD_ENABLED=true
+GUARD_WS_ENABLED=false
+HOME=/root
+HOST=127.0.0.1
+HOSTNAME=66ce8999a7f6
+HOST_CLAUDE_CREDENTIALS=
+IMAGE_TAG=v012
+INTERNAL_API_SECRET=6059d8960f5a315ac46f4918b8dd5e974134af4f54ee8d7d05fbc3bf7cc1380e
+JWT_SECRET=vexa-lite-jwt-secret
+LANG=C.UTF-8
+LC_ALL=C.UTF-8
+LOG_LEVEL=info
+MINIO_ACCESS_KEY=vexa-access-key
+MINIO_BUCKET=vexa
+MINIO_ENDPOINT=vexa-lite-minio:9000
+MINIO_SECRET_KEY=vexa-secret-key
+MINIO_SECURE=false
+NEXTAUTH_SECRET=vexa-lite-nextauth-secret
+OLDPWD=/app/runtime
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+PORT=8090
+PWD=/app/core/meetings/services/bot
+PYTHONPATH=/app/runtime/src
+PYTHONUNBUFFERED=1
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_URL=redis://localhost:6379/0
+RUNTIME_BACKEND=process
+SHLVL=0
+SUPERVISOR_ENABLED=1
+SUPERVISOR_GROUP_NAME=vexa
+SUPERVISOR_PROCESS_NAME=runtime
+SUPERVISOR_SERVER_URL=unix:///var/run/supervisor.sock
+TERMINAL_PUBLIC_URL=http://localhost:3001
+TRANSCRIPTION_MODEL=
+TRANSCRIPTION_SERVICE_TOKEN=
+TRANSCRIPTION_SERVICE_URL=http://vexa-lite-whisper:8000
+UV_LINK_MODE=copy
+VEXA_AGENT_DEFAULT_SUBJECT=u_live
+VEXA_AGENT_MODEL=
+VEXA_API_KEY=
+VEXA_BOT_API_KEY=
+VEXA_BOT_CONFIG={"platform":"teams","meetingUrl":"https://teams.live.com/meet/9341609038466?p=H13JxYtiYCoyXy1I4R","botName":"Vexa EI","passcode":"H13JxYtiYCoyXy1I4R","nativeMeetingId":"9341609038466","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtZWV0aW5nX2lkIjo0LCJ1c2VyX2lkIjoxLCJwbGF0Zm9ybSI6InRlYW1zIiwibmF0aXZlX21lZXRpbmdfaWQiOiI5MzQxNjA5MDM4NDY2Iiwic2NvcGUiOiJ0cmFuc2NyaWJlOndyaXRlIiwiaXNzIjoibWVldGluZy1hcGkiLCJhdWQiOiJ0cmFuc2NyaXB0aW9uLWNvbGxlY3RvciIsImlhdCI6MTc5MDQ1NDQzMSwiZXhwIjoxNzkwNDcyNDMxLCJqdGkiOiI0OTJkZTgyZS03MjMyLTQzNzctODU0Mi1jZDEyZTZmZjQwMWIifQ.on-lsjXYroDOTMswHnpqNGu10oa9WrniwQiyS8rxlnQ","connectionId":"6fe0a57a-ff78-459f-a256-3aecb93ab825","meeting_id":4,"redisUrl":"redis://localhost:6379/0","language":"pt","transcriptionTier":"realtime","transcribeEnabled":true,"transcriptionServiceUrl":"https://transcription.vexa.ai","transcriptionServiceToken":"vxa_tx_JV2TKcDi59efh6tF8VYhgXXlwI9RqgAQ","recordingEnabled":false,"captureSignalEnabled":true,"recordingUploadUrl":"http://localhost:8080/internal/recordings/upload","meetingApiCallbackUrl":"http://localhost:8080/bots/internal/callback/lifecycle","internalSecret":"6059d8960f5a315ac46f4918b8dd5e974134af4f54ee8d7d05fbc3bf7cc1380e","automaticLeave":{"waitingRoomTimeout":900000}}
+VEXA_DISPATCH_SIGNING_KEY=dev-dispatch-signing-key
+VEXA_HF_CACHE=/opt/hf-cache
+VEXA_MEETING_MODEL=
+VEXA_PUBLIC_API_URL=http://localhost:8056
+VEXA_SERVICE_AUTHORITY_CONFIG=
+VEXA_SERVICE_AUTHORITY_SECRET=
+VEXA_SYSTEM_WEBHOOK_ALLOW_PRIVATE_HTTP=false
+VEXA_SYSTEM_WEBHOOK_SECRET=
+VEXA_SYSTEM_WEBHOOK_TIMEOUT_S=10
+VEXA_SYSTEM_WEBHOOK_URL=
+===== CONFIG.JS =====
+/**
+ * invocation.v1 boot config (P14) — the bot's "constructor".
+ *
+ * The container is started with ONE JSON env var, `VEXA_BOT_CONFIG`, holding an
+ * `invocation.v1` object. We validate it at boot against the PUBLISHED schema
+ * (`meetings/contracts/invocation.v1/invocation.schema.json`, loaded by PATH — the
+ * goldens are the spec, P8) with ajv — the same validator the contract's own
+ * `validate.mjs` uses, so the bot can NEVER drift from the contract. A parse/validation
+ * failure is fatal: the caller maps it to a lifecycle.v1 `failed` / `validation_error`
+ * (fail-fast, P14). Secrets ride in this contract (token / internalSecret / S3 keys) —
+ * never logged (P14/P15).
+ *
+ * `Invocation` is the typed view the rest of the bot depends on. It is a hand-written
+ * mirror of the schema's `#/$defs/Invocation` (no zod — zero new runtime deps; ajv is the
+ * single source of truth at runtime, this interface is the compile-time shadow).
+ */
+import { Ajv2020 } from 'ajv/dist/2020.js';
+import addFormatsDefault from 'ajv-formats';
+import { readFileSync } from 'node:fs';
+// verbatimModuleSyntax (tsconfig.base): the CJS default export of ajv-formats isn't
+// synthesized as callable, so bind its call signature explicitly. Runtime is unchanged.
+const addFormats = addFormatsDefault;
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+/** True for platforms that ride the MIXED capture lane (one combined WebRTC audio
+ *  stream + pyannote separation); google_meet rides the per-channel gmeet lane.
+ *  The ONE predicate the browser hook, the capture bridge, and the pipeline pick
+ *  must all agree on — never restate it inline. */
+export function isMixedLanePlatform(p) {
+    return p === 'zoom' || p === 'teams' || p === 'jitsi';
+}
+/** True for mixed-lane platforms whose per-participant WebRTC streams are confirmed stable
+ *  (one track per person, no remapping) — captured PER-TRACK and transcribed through the
+ *  per-channel (gmeet) engine instead of the pyannote mix. Zoom is verified live (10 stable
+ *  streams, 0 teardowns). Teams/Jitsi stay on the mix until witnessed the same way — a Teams
+ *  active-speaker SLOT model would defeat per-track, so it is NOT assumed. Both the capture
+ *  bridge (which capture) and the pipeline pick (which engine) read THIS one predicate. */
+export function isPerTrackLanePlatform(p) {
+    return p === 'zoom';
+}
+/** Thrown when VEXA_BOT_CONFIG is missing / not JSON / off-contract. The composition root
+ *  maps this to lifecycle.v1 failed(validation_error, failure_stage=requested). */
+export class InvocationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'InvocationError';
+    }
+}
+const HERE = dirname(fileURLToPath(import.meta.url));
+// src/ → ../../../contracts/invocation.v1/  (meetings/services/bot/src → meetings/contracts/…)
+const SCHEMA_PATH = join(HERE, '..', '..', '..', 'contracts', 'invocation.v1', 'invocation.schema.json');
+let _validator;
+function validator() {
+    if (_validator)
+        return _validator;
+    const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8'));
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema(schema);
+    const validate = ajv.compile({ $ref: `${schema.$id}#/$defs/Invocation` });
+    _validator = { ajv, validate };
+    return _validator;
+}
+/** Parse + validate a raw JSON string against invocation.v1, or throw InvocationError. */
+export function parseInvocation(raw) {
+    if (!raw || !raw.trim())
+        throw new InvocationError('invocation.v1: VEXA_BOT_CONFIG env is missing or empty');
+    let data;
+    try {
+        data = JSON.parse(raw);
+    }
+    catch (e) {
+        throw new InvocationError(`invocation.v1: VEXA_BOT_CONFIG is not valid JSON — ${e.message}`);
+    }
+    const { ajv, validate } = validator();
+    if (!validate(data)) {
+        throw new InvocationError(`invocation.v1: VEXA_BOT_CONFIG failed validation — ${ajv.errorsText(validate.errors)}`);
+    }
+    return data;
+}
+/** Boot helper — read VEXA_BOT_CONFIG from the environment and validate it (P7: config by env). */
+export function loadInvocation(env = process.env) {
+    return parseInvocation(env.VEXA_BOT_CONFIG);
+}
+const SPEAKER_STREAM_ENV = [
+    ['minAudioDuration', 'BOT_SPEAKER_MIN_AUDIO_SEC'],
+    ['submitInterval', 'BOT_SPEAKER_SUBMIT_INTERVAL_SEC'],
+    ['confirmThreshold', 'BOT_SPEAKER_CONFIRM_THRESHOLD'],
+    ['maxBufferDuration', 'BOT_SPEAKER_MAX_BUFFER_SEC'],
+    ['idleTimeoutSec', 'BOT_SPEAKER_IDLE_TIMEOUT_SEC'],
+];
+/** Read optional Meet speaker-stream tuning knobs from the bot environment. */
+export function speakerStreamConfigFromEnv(env = process.env, warn = (message) => console.warn(`[bot] ${message}`)) {
+    const config = {};
+    let configured = false;
+    for (const [property, key] of SPEAKER_STREAM_ENV) {
+        const raw = env[key];
+        if (raw === undefined || raw.trim() === '')
+            continue;
+        const value = Number(raw);
+        const valid = Number.isFinite(value) && value > 0 &&
+            (property !== 'confirmThreshold' || Number.isInteger(value));
+        if (!valid) {
+            warn(`${key}=${JSON.stringify(raw)} is invalid; using the built-in speaker-stream default`);
+            continue;
+        }
+        config[property] = value;
+        configured = true;
+    }
+    return configured ? config : undefined;
+}
+//# sourceMappingURL=config.js.mapubuntu@vcn-vexa-vnic:~/vexa$
