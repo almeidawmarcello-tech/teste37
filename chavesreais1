@@ -3,4 +3,22 @@ ADMIN-API PID 33:
 9f82f9625e21cd4f1df1c7d8bfff7b39ce71dd57cb7f891d9cb76efac186dd5e  -
 GATEWAY PID 37:
 9f82f9625e21cd4f1df1c7d8bfff7b39ce71dd57cb7f891d9cb76efac186dd5e  -
+ubuntu@vcn-vexa-vnic:~$ docker exec vexa-lite sh -c '
+> SECRET=$(tr "\0" "\n" < /proc/37/environ | sed -n "s/^INTERNAL_API_SECRET=//p")
+> APIKEY=$(tr "\0" "\n" < /proc/37/environ | sed -n "s/^VEXA_API_KEY=//p")
+> echo "=== TESTE COM A CHAVE REAL DO GATEWAY ==="
+> curl -sS -o /tmp/auth_response -w "HTTP=%{http_code}\n" \
+>   -X POST http://127.0.0.1:8001/internal/validate \
+>   -H "Content-Type: application/json" \
+>   -H "X-Internal-Secret: $SECRET" \
+>   -H "X-API-Key: $APIKEY" \
+>   -d "{\"api_key\":\"$APIKEY\"}"
+> echo "RESPONSE:"
+> cat /tmp/auth_response
+> echo
+> '
+=== TESTE COM A CHAVE REAL DO GATEWAY ===
+HTTP=401
+RESPONSE:
+{"detail":"Missing token"}
 ubuntu@vcn-vexa-vnic:~$
