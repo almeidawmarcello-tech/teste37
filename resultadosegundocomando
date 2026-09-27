@@ -1,0 +1,31 @@
+PS C:\Users\RTEC\Downloads\vexa> Get-ChildItem . -Recurse -File | Select-String -Pattern "class MixedAudioCapture","MixedAudioCapture"
+
+clients\extension\src\offscreen.ts:14:import { createMixedAudioCapture, type MixedAudioCapture } from '@vexa/mixed-capture-core';
+clients\extension\src\offscreen.ts:34:let tabCapture: MixedAudioCapture | null = null;
+clients\extension\src\offscreen.ts:98:    tabCapture = await createMixedAudioCapture(tabStream!, (pcm) => {
+core\meetings\modules\mixed-capture-core\README.md:13:Two pieces: `createMixedAudioCapture` taps a mixed `MediaStream` (e.g. a `tabCapture` stream) to
+core\meetings\modules\mixed-capture-core\README.md:25:`createMixedAudioCapture` · `installRemoteAudioHook` (+ types `MixedAudioCapture`,
+core\meetings\modules\mixed-capture-core\src\index.ts:10:export { createMixedAudioCapture } from './mixed-audio.js';
+core\meetings\modules\mixed-capture-core\src\index.ts:11:export type { MixedAudioCapture, MixedAudioOptions } from './mixed-audio.js';
+core\meetings\modules\mixed-capture-core\src\mixed-audio.ts:22:export interface MixedAudioCapture {
+core\meetings\modules\mixed-capture-core\src\mixed-audio.ts:37:export async function createMixedAudioCapture(
+core\meetings\modules\mixed-capture-core\src\mixed-audio.ts:41:): Promise<MixedAudioCapture> {
+core\meetings\modules\mixed-capture-core\src\mixed-capture-core.test.ts:3: * minimal AudioContext/MediaStream so we can drive the real createMixedAudioCapture
+core\meetings\modules\mixed-capture-core\src\mixed-capture-core.test.ts:11:import { createMixedAudioCapture, installRemoteAudioHook } from './index.js';
+core\meetings\modules\mixed-capture-core\src\mixed-capture-core.test.ts:51:  const cap = await createMixedAudioCapture(new FakeMediaStream() as any, (pcm) => pcms.push(pcm), { sampleRate:
+16000, silenceThreshold: 0.01 });
+core\meetings\modules\mixed-capture-core\src\mixed-capture-core.test.ts:63:  const cap = await createMixedAudioCapture(new FakeMediaStream() as any, (pcm) => pcms.push(pcm), {
+silenceThreshold: 0.01 });
+core\meetings\modules\mixed-capture-core\src\mixed-capture-core.test.ts:72:  const cap = await createMixedAudioCapture(new FakeMediaStream() as any, () => {}, { replay: false });
+core\meetings\modules\mixed-capture-core\src\README.md:4:[`mixed-audio.ts`](mixed-audio.ts) (`createMixedAudioCapture` — a mixed `MediaStream` → 16 kHz PCM
+core\meetings\services\bot\build-browser-utils.mjs:21: *   • createMixedAudioCapture(stream, onPcm)      — mixed lane (zoom/teams)
+core\meetings\services\bot\build-browser-utils.mjs:73:  createMixedAudioCapture,
+core\meetings\services\bot\build-browser-utils.mjs:105:  createMixedAudioCapture,   // capture-bridge.ts: w.VexaBrowserUtils.createMixedAudioCapture
+core\meetings\services\bot\build-browser-utils.mjs:165:console.log('  - createMixedAudioCapture / installRemoteAudioHook / selectTeamsMixStreams / createCsrcPoll');
+core\meetings\services\bot\src\aloneness.ts:150: *     because remote-audio ready is latched only once `createMixedAudioCapture` starts, which needs
+core\meetings\services\bot\src\capture-bridge.ts:1089:        if (!w.__vexaMixedCapture && w.__vexaMixSeen.size && w.VexaBrowserUtils?.createMixedAudioCapture) {
+core\meetings\services\bot\src\capture-bridge.ts:1112:          Promise.resolve(w.VexaBrowserUtils.createMixedAudioCapture(w.__vexaMixDest.stream, meterAndForward))
+core\meetings\services\bot\src\csrc-wiring.test.ts:110:// the sensor reads. The AudioContext shim is deliberately minimal — createMixedAudioCapture will
+
+
+PS C:\Users\RTEC\Downloads\vexa>
