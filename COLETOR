@@ -1,0 +1,1027 @@
+PS C:\Users\RTEC\Downloads\vexa> Set-Location "C:\Users\RTEC\Downloads\vexa"; Select-String -Path ".\core\meetings\services\meeting-api\src\meeting_api\*.py" -Pattern "publish|Redis|redis|CommandPublisher|transcript|mutable" -Context 3,6
+
+  core\meetings\services\meeting-api\src\meeting_api\app.py:8:    POST ``/bots/internal/callback/lifecycle``.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:9:  * **bot_spawn** — POST ``/bots``: build the invocation.v1 invocation + mint the MeetingToken +
+  core\meetings\services\meeting-api\src\meeting_api\app.py:10:    spawn the meeting-bot over runtime.v1, eager-creating the MeetingSession on spawn.
+> core\meetings\services\meeting-api\src\meeting_api\app.py:11:  * **collector** — the folded-in transcript backend (collector domain):
+> core\meetings\services\meeting-api\src\meeting_api\app.py:12:    GET ``/transcripts/{platform}/{native_meeting_id}``, GET ``/meetings``,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:13:    POST ``/ws/authorize-subscribe`` (+ the ``transcription_segments`` → ``tc:…:mutable`` consumer).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:14:  * **recordings** — POST ``/internal/recordings/upload``, GET ``/recordings``,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:15:    GET ``/recordings/{id}/master`` (chunks + master → ``meeting.data`` JSONB).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:16:  * **obs** — ``TraceMiddleware`` (logevent.v1 trace_id threading) + the shared ``GET /health``.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:17:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:18:webhooks + scheduling are library bricks (no HTTP surface of their own in the core path — they are
+  core\meetings\services\meeting-api\src\meeting_api\app.py:19:driven by the lifecycle/bot_spawn flows); they are re-exported from the package front door and wired
+  core\meetings\services\meeting-api\src\meeting_api\app.py:38:from . import events as _flows_events
+  core\meetings\services\meeting-api\src\meeting_api\app.py:39:from . import recordings as _recordings
+  core\meetings\services\meeting-api\src\meeting_api\app.py:40:from .collector.app import build_router as _build_collector_router
+> core\meetings\services\meeting-api\src\meeting_api\app.py:41:from .collector.ports import RedisBus, TranscriptStore
+  core\meetings\services\meeting-api\src\meeting_api\app.py:42:from .lifecycle.machine import LifecycleSink, MeetingStore
+  core\meetings\services\meeting-api\src\meeting_api\app.py:43:from .obs import TraceMiddleware
+  core\meetings\services\meeting-api\src\meeting_api\app.py:44:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:45:#: In-process capture of the last N emitted webhook envelopes — an eval/introspection seam, never a
+  core\meetings\services\meeting-api\src\meeting_api\app.py:46:#: durable store (the DB meeting row is the durable record; the WebhookSink is the delivery path).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:47:#: BOUNDED because it lives on the production app and every bot lifecycle callback appends one
+  core\meetings\services\meeting-api\src\meeting_api\app.py:54:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:55:def _xpending_total(summary) -> "Optional[int]":
+  core\meetings\services\meeting-api\src\meeting_api\app.py:56:    """Total DELIVERED-but-un-acked count for the group from an XPENDING SUMMARY reply (#636).
+> core\meetings\services\meeting-api\src\meeting_api\app.py:57:    redis-py returns a dict ``{'pending': N, 'min', 'max', 'consumers'}``; the raw protocol reply is
+  core\meetings\services\meeting-api\src\meeting_api\app.py:58:    a list ``[N, min, max, consumers]``. Returns the integer total, or None when unrecognizable."""
+  core\meetings\services\meeting-api\src\meeting_api\app.py:59:    if isinstance(summary, dict):
+  core\meetings\services\meeting-api\src\meeting_api\app.py:60:        v = summary.get("pending")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:61:        return int(v) if isinstance(v, int) else None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:62:    if isinstance(summary, (list, tuple)) and summary:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:63:        try:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:73:    stamping, so its tick_age_s climbs past PIPELINE_TICK_STALE_S even while the process and the
+  core\meetings\services\meeting-api\src\meeting_api\app.py:74:    live-WS path look healthy — the 2026-04-26 silent hang. A crashed replica's delivered-but-un-acked
+  core\meetings\services\meeting-api\src\meeting_api\app.py:75:    batch is NOT lag (it was delivered) and NOT a stale heartbeat on the survivor, so #636 surfaces it
+> core\meetings\services\meeting-api\src\meeting_api\app.py:76:    as ``pending_depth``. Returns ``({loops, redis_reachable, consumer_lag, pending_depth}, degraded)``.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:77:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:78:    #809 — Redis is a CACHE/QUEUE dependency, not the process's spine: an unreachable Redis is
+> core\meetings\services\meeting-api\src\meeting_api\app.py:79:    reported HONESTLY as ``redis_reachable: false`` but NEVER flips ``degraded`` (so it cannot 503 the
+> core\meetings\services\meeting-api\src\meeting_api\app.py:80:    shared probe). DB-backed reads keep serving through a Redis outage, so readiness stays true — a
+  core\meetings\services\meeting-api\src\meeting_api\app.py:81:    cache blip no longer becomes a total core outage (the 2026-07-19 boot-block/CrashLoop).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:82:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:83:    The probe MUST NOT itself hang (that would defeat the point): the XINFO/XPENDING calls are each
+  core\meetings\services\meeting-api\src\meeting_api\app.py:84:    bounded by a 2s wait_for and any failure degrades that field to ``"unavailable"`` — never blocks."""
+  core\meetings\services\meeting-api\src\meeting_api\app.py:85:    st = app.state
+  core\meetings\services\meeting-api\src\meeting_api\app.py:86:    now = time.monotonic()
+  core\meetings\services\meeting-api\src\meeting_api\app.py:92:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:93:    lag = None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:94:    pending_depth = None
+> core\meetings\services\meeting-api\src\meeting_api\app.py:95:    redis_reachable = None
+> core\meetings\services\meeting-api\src\meeting_api\app.py:96:    redis = getattr(st, "pipeline_redis", None)
+> core\meetings\services\meeting-api\src\meeting_api\app.py:97:    if redis is not None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:98:        # #809: a bounded reachability PING FIRST — the honest per-component signal the 2026-07-19
+> core\meetings\services\meeting-api\src\meeting_api\app.py:99:        # incident lacked (/health read "ok" through a 40-minute Redis outage). A dead Redis fails
+  core\meetings\services\meeting-api\src\meeting_api\app.py:100:        # here within 2s; we then SKIP the stream probes (they would only time out too) and report
+> core\meetings\services\meeting-api\src\meeting_api\app.py:101:        # their fields "unavailable". This NEVER sets `degraded`: Redis is a cache/queue, so the
+  core\meetings\services\meeting-api\src\meeting_api\app.py:102:        # DB-backed readiness paths stay green and the shared probe stays 200 (no CrashLoop recurrence).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:103:        # `ping` is resolved defensively: a client without it (a minimal probe stub) leaves
+  core\meetings\services\meeting-api\src\meeting_api\app.py:104:        # reachability UNKNOWN (None) and the stream probes run exactly as before — the real
+> core\meetings\services\meeting-api\src\meeting_api\app.py:105:        # ``redis.asyncio`` client always has ``ping``, so production always gets the honest signal.
+> core\meetings\services\meeting-api\src\meeting_api\app.py:106:        ping = getattr(redis, "ping", None)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:107:        if ping is not None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:108:            try:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:109:                await asyncio.wait_for(ping(), timeout=2.0)
+> core\meetings\services\meeting-api\src\meeting_api\app.py:110:                redis_reachable = True
+  core\meetings\services\meeting-api\src\meeting_api\app.py:111:            except Exception:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:112:                redis_reachable = False
+> core\meetings\services\meeting-api\src\meeting_api\app.py:113:    # Run the stream probes unless we KNOW Redis is down (reachable is False). Unknown (None, no
+  core\meetings\services\meeting-api\src\meeting_api\app.py:114:    # ping) or True → probe, preserving the pre-#809 lag/pending behaviour.
+> core\meetings\services\meeting-api\src\meeting_api\app.py:115:    if redis is not None and redis_reachable is not False:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:116:        try:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:117:            groups = await asyncio.wait_for(redis.xinfo_groups(st.pipeline_stream), timeout=2.0)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:118:            for g in groups or []:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:119:                name = g.get("name") if isinstance(g, dict) else None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:120:                name = name.decode() if isinstance(name, (bytes, bytearray)) else name
+  core\meetings\services\meeting-api\src\meeting_api\app.py:121:                if name == st.pipeline_group:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:122:                    lag = g.get("lag")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:123:                    break
+  core\meetings\services\meeting-api\src\meeting_api\app.py:127:        # to lag; a SUSTAINED non-zero total is the orphan signal (steady state acks within a tick).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:128:        try:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:129:            summary = await asyncio.wait_for(
+> core\meetings\services\meeting-api\src\meeting_api\app.py:130:                redis.xpending(st.pipeline_stream, st.pipeline_group), timeout=2.0
+  core\meetings\services\meeting-api\src\meeting_api\app.py:131:            )
+  core\meetings\services\meeting-api\src\meeting_api\app.py:132:            pending_depth = _xpending_total(summary)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:133:            if pending_depth is None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:134:                pending_depth = "unavailable"
+  core\meetings\services\meeting-api\src\meeting_api\app.py:135:        except Exception:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:136:            pending_depth = "unavailable"  # never block the probe on a pending read
+> core\meetings\services\meeting-api\src\meeting_api\app.py:137:    elif redis is not None and redis_reachable is False:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:138:        # #809: Redis unreachable → the stream signals are unavailable, but readiness is NOT degraded.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:139:        lag = "unavailable"
+  core\meetings\services\meeting-api\src\meeting_api\app.py:140:        pending_depth = "unavailable"
+  core\meetings\services\meeting-api\src\meeting_api\app.py:141:    if isinstance(lag, int) and lag > lag_alarm:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:142:        degraded = True
+  core\meetings\services\meeting-api\src\meeting_api\app.py:143:    if isinstance(pending_depth, int) and pending_depth > pending_alarm:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:144:        degraded = True
+  core\meetings\services\meeting-api\src\meeting_api\app.py:145:    return {
+  core\meetings\services\meeting-api\src\meeting_api\app.py:146:        "loops": loops,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:147:        "redis_reachable": redis_reachable,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:148:        "consumer_lag": lag,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:149:        "pending_depth": pending_depth,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:150:    }, degraded
+  core\meetings\services\meeting-api\src\meeting_api\app.py:151:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:152:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:153:def create_app(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:154:    *,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:155:    # collector ports
+> core\meetings\services\meeting-api\src\meeting_api\app.py:156:    transcript_store: Optional[TranscriptStore] = None,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:157:    redis: Optional[RedisBus] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:158:    # bot_spawn ports
+  core\meetings\services\meeting-api\src\meeting_api\app.py:159:    meeting_repo: Optional["_bot_spawn.MeetingRepo"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:160:    runtime: Optional["_bot_spawn.RuntimeClient"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:161:    service_authority: Optional["object"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:162:    # recordings ports
+  core\meetings\services\meeting-api\src\meeting_api\app.py:163:    recording_repo: Optional["_recordings.RecordingRepo"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:165:    # lifecycle store
+  core\meetings\services\meeting-api\src\meeting_api\app.py:166:    meeting_store: Optional[MeetingStore] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:167:    token_secret: Optional[str] = None,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:168:    # user-stop (DELETE /bots) redis command publisher
+> core\meetings\services\meeting-api\src\meeting_api\app.py:169:    command_publisher: Optional["object"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:170:    # per-user webhook delivery sink (WebhookSink) — delivers meeting.status_change on each FSM advance
+  core\meetings\services\meeting-api\src\meeting_api\app.py:171:    webhook_sink: Optional["object"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:172:    # operator-owned terminal callback — boot-frozen destination, never user/meeting input
+  core\meetings\services\meeting-api\src\meeting_api\app.py:173:    system_webhook_sink: Optional["object"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:174:    # per-user delivery ledger (#841) — the queryable record GET /webhooks/deliveries reads. The
+  core\meetings\services\meeting-api\src\meeting_api\app.py:175:    # lifecycle callback records each delivery outcome here so the dashboard's Delivery History
+  core\meetings\services\meeting-api\src\meeting_api\app.py:177:    delivery_ledger: Optional["object"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:178:    # completion finalizer — awaited with the NUMERIC meeting id when the FSM lands on a TERMINAL
+  core\meetings\services\meeting-api\src\meeting_api\app.py:179:    # status (completed/failed). Production wires collector/db_writer.finalize_meeting: flush the
+> core\meetings\services\meeting-api\src\meeting_api\app.py:180:    # meeting's remaining redis segments to Postgres + persist the processed doc into meeting.data,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:181:    # so a finished meeting's transcript is durable IMMEDIATELY. Best-effort — never fails the callback.
+> core\meetings\services\meeting-api\src\meeting_api\app.py:182:    transcript_finalizer: Optional["object"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:183:    # calendar-sync user edges (async callables from the composition root; None → routes 503)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:184:    calendar_sync_now: Optional["object"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:185:    calendar_sync_status: Optional["object"] = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:186:) -> FastAPI:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:187:    """Build the unified meeting-api app from the injected ports.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:188:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:189:    Any port left ``None`` falls back to its in-memory fake so the app factory stands up a fully
+> core\meetings\services\meeting-api\src\meeting_api\app.py:190:    in-process meeting-api (no DB, no redis, no MinIO, no runtime kernel) — the shape the unified
+  core\meetings\services\meeting-api\src\meeting_api\app.py:191:    health + conformance harnesses drive. Production wires the real adapters via each module's
+  core\meetings\services\meeting-api\src\meeting_api\app.py:192:    ``adapters.build_production_*`` (composition is P3; the seams are here).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:193:    """
+  core\meetings\services\meeting-api\src\meeting_api\app.py:194:    app = FastAPI(title="Vexa Meeting API (v0.12)", version="0.12.0")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:195:    # The edge: read/mint X-Trace-Id and bind it for the request (logevent.v1 trace_id).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:196:    app.add_middleware(TraceMiddleware)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:234:    app.state.lifecycle_store = sink.store
+  core\meetings\services\meeting-api\src\meeting_api\app.py:235:    app.state.webhook_sink = webhook_sink
+  core\meetings\services\meeting-api\src\meeting_api\app.py:236:    # #841: the per-user delivery ledger the read endpoint serves. Default to the in-memory fake so
+> core\meetings\services\meeting-api\src\meeting_api\app.py:237:    # the app-factory / conformance path stands up without redis (same pattern as the other ports).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:238:    if delivery_ledger is None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:239:        from .webhooks import InMemoryDeliveryLedger
+  core\meetings\services\meeting-api\src\meeting_api\app.py:240:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:241:        delivery_ledger = InMemoryDeliveryLedger()
+  core\meetings\services\meeting-api\src\meeting_api\app.py:242:    app.state.delivery_ledger = delivery_ledger
+> core\meetings\services\meeting-api\src\meeting_api\app.py:243:    # The lifecycle callback publishes each persisted FSM advance to bm:meeting:{id}:status so the
+  core\meetings\services\meeting-api\src\meeting_api\app.py:244:    # gateway /ws (which SUBSCRIBEs that channel) forwards a ws.v1 BotStatus frame to the dashboard.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:245:    _mount_lifecycle(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:246:        app,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:247:        sink,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:248:        meeting_repo,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:249:        webhook_sink,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:250:        system_webhook_sink,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:251:        redis,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:252:        transcript_finalizer,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:253:        delivery_ledger,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:254:    )
+  core\meetings\services\meeting-api\src\meeting_api\app.py:255:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:256:    # --- bot_spawn: POST /bots (invocation.v1 + runtime.v1) ---
+  core\meetings\services\meeting-api\src\meeting_api\app.py:257:    # No `fetch_bot_context` here: `request_bot` resolves this person's default bot name out of the
+> core\meetings\services\meeting-api\src\meeting_api\app.py:258:    # spawn context it already fetches for the transcription backend and the capture-signal
+  core\meetings\services\meeting-api\src\meeting_api\app.py:259:    # decision. Injecting a second fetcher made POST /bots ask identity for the same body twice.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:260:    app.include_router(_bot_spawn.build_router(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:261:        meeting_repo,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:262:        runtime,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:263:        service_authority,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:264:    ))
+  core\meetings\services\meeting-api\src\meeting_api\app.py:265:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:266:    # --- user-stop: DELETE /bots/{platform}/{native_meeting_id} (lifecycle/stop.py over redis) ---
+> core\meetings\services\meeting-api\src\meeting_api\app.py:267:    from .lifecycle.stop_router import InMemoryCommandPublisher, build_stop_router
+  core\meetings\services\meeting-api\src\meeting_api\app.py:268:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:269:    if command_publisher is None:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:270:        command_publisher = InMemoryCommandPublisher()
+> core\meetings\services\meeting-api\src\meeting_api\app.py:271:    app.state.command_publisher = command_publisher
+  core\meetings\services\meeting-api\src\meeting_api\app.py:272:    # The stop router also gets the runtime client so a stop can directly tear down a still-booting bot's
+  core\meetings\services\meeting-api\src\meeting_api\app.py:273:    # workload (the leave command alone is fire-and-forget — a booting bot may never receive it → orphan).
+> core\meetings\services\meeting-api\src\meeting_api\app.py:274:    app.include_router(build_stop_router(meeting_repo, command_publisher, runtime))
+  core\meetings\services\meeting-api\src\meeting_api\app.py:275:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:276:    # Resolve the shared recording storage before mounting the collector: completed-meeting erasure
+> core\meetings\services\meeting-api\src\meeting_api\app.py:277:    # uses this same port to delete objects before its transcript/JSONB finalization.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:278:    if storage is None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:279:        storage = _recordings_fakes().InMemoryStorage()
+  core\meetings\services\meeting-api\src\meeting_api\app.py:280:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:281:    async def _delete_recording_objects(recording: dict) -> list[str]:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:282:        from .recordings.deletion import delete_recording_objects
+  core\meetings\services\meeting-api\src\meeting_api\app.py:283:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:284:        return await delete_recording_objects(storage, recording)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:285:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:286:    # --- collector: transcripts + meetings + ws-authorize (api.v1) ---
+> core\meetings\services\meeting-api\src\meeting_api\app.py:287:    if transcript_store is None:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:288:        transcript_store = _collector_fakes().InMemoryTranscriptStore()
+> core\meetings\services\meeting-api\src\meeting_api\app.py:289:    app.include_router(_build_collector_router(transcript_store, redis,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:290:                                            calendar_sync_now=calendar_sync_now,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:291:                                            calendar_sync_status=calendar_sync_status,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:292:                                            artifact_object_deleter=_delete_recording_objects))
+  core\meetings\services\meeting-api\src\meeting_api\app.py:293:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:294:    # --- recordings: chunk upload + finalize → meeting.data JSONB (recording.v1) ---
+  core\meetings\services\meeting-api\src\meeting_api\app.py:295:    if recording_repo is None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:350:    meeting_repo: "_bot_spawn.MeetingRepo",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:351:    webhook_sink: "object" = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:352:    system_webhook_sink: "object" = None,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:353:    redis: "object" = None,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:354:    transcript_finalizer: "object" = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:355:    delivery_ledger: "object" = None,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:356:) -> None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:357:    """Register the lifecycle.v1 callback route on the unified app (the lifecycle receiver's
+  core\meetings\services\meeting-api\src\meeting_api\app.py:358:    ``/bots/internal/callback/lifecycle`` handler, sharing the app's TraceMiddleware).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:359:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:360:    P3a — each FSM advance emits the sealed ``meeting.status_change`` webhook.v1 envelope and
+  core\meetings\services\meeting-api\src\meeting_api\app.py:366:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:367:    Before applying an event the callback REHYDRATES the in-memory FSM record from the DB meeting
+  core\meetings\services\meeting-api\src\meeting_api\app.py:368:    status, so the FSM survives a process restart (the in-process store starts empty) and a terminal
+> core\meetings\services\meeting-api\src\meeting_api\app.py:369:    callback reconciles against the durable status. After a persisted advance it PUBLISHES a ws.v1
+  core\meetings\services\meeting-api\src\meeting_api\app.py:370:    ``BotStatus`` frame to ``bm:meeting:{id}:status`` for the gateway ``/ws`` to forward to clients.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:371:    """
+  core\meetings\services\meeting-api\src\meeting_api\app.py:372:    import jsonschema
+  core\meetings\services\meeting-api\src\meeting_api\app.py:373:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:374:    from .lifecycle.machine import IllegalTransition, TransitionSource
+  core\meetings\services\meeting-api\src\meeting_api\app.py:375:    from .lifecycle.provenance import build_service_provenance
+  core\meetings\services\meeting-api\src\meeting_api\app.py:413:        force_terminal_on_destroy: bool = False,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:414:    ) -> tuple[int, dict]:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:415:        """Apply ONE lifecycle.v1 event to the FSM + run every side effect (persist, finalize,
+> core\meetings\services\meeting-api\src\meeting_api\app.py:416:        webhook deliver, ws publish, copilot reap), returning ``(status_code, content)``.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:417:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:418:        This is the SINGLE in-process entry the FSM advance flows through — the HTTP endpoint
+  core\meetings\services\meeting-api\src\meeting_api\app.py:419:        ``POST /bots/internal/callback/lifecycle`` (the bot's own callback) is a thin wrapper around
+  core\meetings\services\meeting-api\src\meeting_api\app.py:420:        it, and the runtime-callback synthetic-terminal path calls it DIRECTLY (no HTTP self-POST).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:421:        The prior implementation POSTed to ``http://127.0.0.1:PORT/…`` to re-enter this logic; that
+  core\meetings\services\meeting-api\src\meeting_api\app.py:422:        loopback round-trip was fragile (a rehydration race made the synthetic terminal 409, and
+  core\meetings\services\meeting-api\src\meeting_api\app.py:522:        rec = change.record
+  core\meetings\services\meeting-api\src\meeting_api\app.py:523:        # Build + record the status_change envelope only on a REAL advance — an idempotent replay
+  core\meetings\services\meeting-api\src\meeting_api\app.py:524:        # (change.no_op, e.g. the bot's 3x terminal retry) must NOT double-count it. The persist, the
+> core\meetings\services\meeting-api\src\meeting_api\app.py:525:        # webhook deliver, and the ws publish below are already no_op-gated (they hang off meeting_row,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:526:        # set only on a real persist), so end-user delivery is exactly-once; this keeps the in-process
+  core\meetings\services\meeting-api\src\meeting_api\app.py:527:        # envelope log honest too.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:528:        envelope = None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:529:        if not change.no_op:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:530:            envelope = build_status_change_envelope(change)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:531:            app.state.status_change_webhooks.append(envelope)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:534:        # never fail the bot's lifecycle callback (the in-process FSM + webhook already advanced).
+  core\meetings\services\meeting-api\src\meeting_api\app.py:535:        # On an idempotent replay (change.no_op) the FSM did not actually advance — skip the
+  core\meetings\services\meeting-api\src\meeting_api\app.py:536:        # re-persist + re-deliver so a redelivered terminal does not fire a duplicate webhook /
+> core\meetings\services\meeting-api\src\meeting_api\app.py:537:        # publish. We still return 200 (handled below) — the redelivery is acknowledged as a no-op.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:538:        meeting_row = None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:539:        if rec.status is not None and not change.no_op:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:540:            try:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:541:                meeting_row = await meeting_repo.update_meeting_status(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:542:                    session_uid=rec.connection_id,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:543:                    status=rec.status.value,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:549:                log_event("lifecycle_persist_failed", audience="system", level="warning",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:550:                          span="lifecycle.callback", fields={"error": str(e)})
+  core\meetings\services\meeting-api\src\meeting_api\app.py:551:        # COMPLETION FINALIZATION — the moment the FSM lands on a terminal status, flush the
+> core\meetings\services\meeting-api\src\meeting_api\app.py:552:        # meeting's remaining live redis segments to the durable store (threshold 0: the mutable
+  core\meetings\services\meeting-api\src\meeting_api\app.py:553:        # tail included, no more updates are coming) and persist the processed doc into
+  core\meetings\services\meeting-api\src\meeting_api\app.py:554:        # meeting.data, via the injected finalizer (prod: collector/db_writer.finalize_meeting).
+> core\meetings\services\meeting-api\src\meeting_api\app.py:555:        # This guarantees a completed meeting's transcript is durable even if the periodic
+  core\meetings\services\meeting-api\src\meeting_api\app.py:556:        # db-writer never gets another tick (crash/restart right after completion). Best-effort:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:557:        # the periodic loop retries anything this misses; never fail the bot's callback.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:558:        terminal_advanced = (
+  core\meetings\services\meeting-api\src\meeting_api\app.py:559:            not change.no_op
+  core\meetings\services\meeting-api\src\meeting_api\app.py:560:            and rec.status is not None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:561:            and rec.status.value in ("completed", "failed")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:563:            and meeting_row.get("id") is not None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:564:        )
+  core\meetings\services\meeting-api\src\meeting_api\app.py:565:        if (
+> core\meetings\services\meeting-api\src\meeting_api\app.py:566:            transcript_finalizer is not None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:567:            and terminal_advanced
+  core\meetings\services\meeting-api\src\meeting_api\app.py:568:        ):
+  core\meetings\services\meeting-api\src\meeting_api\app.py:569:            terminal_meeting_id = meeting_row["id"]
+  core\meetings\services\meeting-api\src\meeting_api\app.py:570:            try:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:571:                finalized_segments = await transcript_finalizer(terminal_meeting_id)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:572:                if isinstance(finalized_segments, int) and finalized_segments >= 0:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:573:                    rec_data = rec.data
+  core\meetings\services\meeting-api\src\meeting_api\app.py:574:                    rec_data["segments_captured"] = finalized_segments
+  core\meetings\services\meeting-api\src\meeting_api\app.py:575:                    updated_row = await meeting_repo.update_meeting_status(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:576:                        session_uid=rec.connection_id,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:577:                        status=rec.status.value,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:585:                        meeting_row = updated_row
+  core\meetings\services\meeting-api\src\meeting_api\app.py:586:            except Exception as e:  # noqa: BLE001 — the db-writer loop is the retry path
+  core\meetings\services\meeting-api\src\meeting_api\app.py:587:                rec_data = rec.data
+> core\meetings\services\meeting-api\src\meeting_api\app.py:588:                rec_data["transcript_finalize_failed"] = True
+  core\meetings\services\meeting-api\src\meeting_api\app.py:589:                try:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:590:                    updated_row = await meeting_repo.update_meeting_status(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:591:                        session_uid=rec.connection_id,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:592:                        status=rec.status.value,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:593:                        completion_reason=(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:594:                            rec.completion_reason.value if rec.completion_reason else None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:600:                        meeting_row = updated_row
+  core\meetings\services\meeting-api\src\meeting_api\app.py:601:                except Exception:  # noqa: BLE001 — original finalization failure is the signal
+  core\meetings\services\meeting-api\src\meeting_api\app.py:602:                    pass
+> core\meetings\services\meeting-api\src\meeting_api\app.py:603:                log_event("transcript_finalize_failed", audience="system", level="warning",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:604:                          span="lifecycle.callback",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:605:                          fields={"meeting_id": terminal_meeting_id, "error": str(e)})
+  core\meetings\services\meeting-api\src\meeting_api\app.py:606:        if terminal_advanced and isinstance(meeting_row, dict):
+  core\meetings\services\meeting-api\src\meeting_api\app.py:607:            data = dict(meeting_row.get("data") or {})
+  core\meetings\services\meeting-api\src\meeting_api\app.py:608:            provenance = build_service_provenance({**meeting_row, "data": data})
+  core\meetings\services\meeting-api\src\meeting_api\app.py:609:            if provenance is not None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:648:            )
+  core\meetings\services\meeting-api\src\meeting_api\app.py:649:            if typed_envelope is not None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:650:                app.state.typed_webhooks.append(typed_envelope)
+> core\meetings\services\meeting-api\src\meeting_api\app.py:651:        # THE MEETINGS→FLOWS PUBLISH EDGE (F168/F181, ADR-0037 / PRD 46 decision 42.2). An ad hoc
+  core\meetings\services\meeting-api\src\meeting_api\app.py:652:        # bot — started via the MCP `request_meeting_bot`, never through a calendar invite — has no
+  core\meetings\services\meeting-api\src\meeting_api\app.py:653:        # `invite_intake` reaction running for it, and that flow is the only thing that has ever
+  core\meetings\services\meeting-api\src\meeting_api\app.py:654:        # told flows a meeting started or finished (`emit_started` / `emit_completed`, PRD decision
+  core\meetings\services\meeting-api\src\meeting_api\app.py:655:        # 42.2). meeting-api's only outbound door used to be the operator webhook just above, which
+  core\meetings\services\meeting-api\src\meeting_api\app.py:656:        # flows does not read. So this fires on exactly the two typed transitions that door already
+  core\meetings\services\meeting-api\src\meeting_api\app.py:657:        # watches — one new domain telling flows a fact only meeting-api can know, alongside (never
+  core\meetings\services\meeting-api\src\meeting_api\app.py:666:        # email, not a no-op). A different id here would double-fire every calendar meeting.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:667:        # See `events.py` for the ref-richness trade this same choice carries: meeting-api holds
+  core\meetings\services\meeting-api\src\meeting_api\app.py:668:        # no invite (no `participants`/`group`), so on `meeting.completed` for a calendar meeting
+> core\meetings\services\meeting-api\src\meeting_api\app.py:669:        # meeting-api's own publish typically WINS the race (it fires the instant the DB row goes
+  core\meetings\services\meeting-api\src\meeting_api\app.py:670:        # `completed`; flows' own `emit_completed` only fires after its next poll tick), and
+  core\meetings\services\meeting-api\src\meeting_api\app.py:671:        # `process_meeting`'s room-read degrades to empty rather than to invite order — see the
+  core\meetings\services\meeting-api\src\meeting_api\app.py:672:        # filed issue for this deployment's disposition of that trade-off.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:673:        if typed_envelope is not None and isinstance(meeting_row, dict):
+  core\meetings\services\meeting-api\src\meeting_api\app.py:674:            _meeting_block = (typed_envelope.get("data") or {}).get("meeting")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:675:            if isinstance(_meeting_block, dict):
+  core\meetings\services\meeting-api\src\meeting_api\app.py:677:                _uid = _meeting_block.get("user_id")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:678:                if _uid is not None and _et == "meeting.started":
+  core\meetings\services\meeting-api\src\meeting_api\app.py:679:                    try:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:680:                        await _flows_events.publish_meeting_started(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:681:                            _meeting_block.get("id"),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:682:                            _meeting_block.get("native_meeting_id"),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:683:                            _meeting_block.get("platform"),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:684:                            _uid,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:685:                        )
+> core\meetings\services\meeting-api\src\meeting_api\app.py:686:                    except Exception:  # noqa: BLE001 — a publish edge is not a dependency
+  core\meetings\services\meeting-api\src\meeting_api\app.py:687:                        pass
+  core\meetings\services\meeting-api\src\meeting_api\app.py:688:                elif _uid is not None and _et == "meeting.completed":
+  core\meetings\services\meeting-api\src\meeting_api\app.py:689:                    try:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:690:                        await _flows_events.publish_meeting_completed(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:691:                            _meeting_block.get("id"),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:692:                            _meeting_block.get("native_meeting_id"),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:693:                            _meeting_block.get("platform"),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:694:                            _uid,
+  core\meetings\services\meeting-api\src\meeting_api\app.py:695:                            _meeting_block.get("completion_reason"),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:696:                        )
+> core\meetings\services\meeting-api\src\meeting_api\app.py:697:                    except Exception:  # noqa: BLE001 — a publish edge is not a dependency
+  core\meetings\services\meeting-api\src\meeting_api\app.py:698:                        pass
+  core\meetings\services\meeting-api\src\meeting_api\app.py:699:        # The operator callback is a separate trust boundary from a customer's
+  core\meetings\services\meeting-api\src\meeting_api\app.py:700:        # webhook. It receives terminal service facts only, through a destination
+  core\meetings\services\meeting-api\src\meeting_api\app.py:701:        # frozen by deployment config. A transient failure is retained by the
+  core\meetings\services\meeting-api\src\meeting_api\app.py:702:        # sink's dedicated retry queue; it never falls back to a user URL.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:703:        if (
+  core\meetings\services\meeting-api\src\meeting_api\app.py:816:                    except Exception as e:  # noqa: BLE001 — delivery is best-effort
+  core\meetings\services\meeting-api\src\meeting_api\app.py:817:                        log_event("webhook_deliver_failed", audience="system", level="warning",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:818:                                  span="lifecycle.callback", fields={"error": str(e)})
+> core\meetings\services\meeting-api\src\meeting_api\app.py:819:        # Publish each persisted FSM advance to bm:meeting:{id}:status in the canonical 0.10.6 WS
+> core\meetings\services\meeting-api\src\meeting_api\app.py:820:        # contract shape (the source of truth; api-gateway forwards the redis payload verbatim):
+  core\meetings\services\meeting-api\src\meeting_api\app.py:821:        #   {type:"meeting.status", meeting:{id,platform,native_id}, payload:{status}, user_id, ts}
+  core\meetings\services\meeting-api\src\meeting_api\app.py:822:        # `status` is the raw BotStatus value (e.g. 'needs_help'); clients translate to their own
+  core\meetings\services\meeting-api\src\meeting_api\app.py:823:        # vocabulary on THEIR side (the core emits the contract, never a client's naming). Skipped on
+  core\meetings\services\meeting-api\src\meeting_api\app.py:824:        # a no-op advance (idempotent replay) / unknown session. Best-effort: never fail the callback.
+> core\meetings\services\meeting-api\src\meeting_api\app.py:825:        if redis is not None and not change.no_op and isinstance(meeting_row, dict) and rec.status is not None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:826:            meeting_id = meeting_row.get("id")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:827:            if meeting_id is not None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:828:                import json as _json
+  core\meetings\services\meeting-api\src\meeting_api\app.py:829:                from datetime import datetime, timezone
+  core\meetings\services\meeting-api\src\meeting_api\app.py:830:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:831:                frame = {
+  core\meetings\services\meeting-api\src\meeting_api\app.py:840:                    "ts": datetime.now(timezone.utc).isoformat(),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:841:                }
+  core\meetings\services\meeting-api\src\meeting_api\app.py:842:                try:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:843:                    await redis.publish(f"bm:meeting:{meeting_id}:status", _json.dumps(frame))
+> core\meetings\services\meeting-api\src\meeting_api\app.py:844:                except Exception as e:  # noqa: BLE001 — publish is best-effort
+> core\meetings\services\meeting-api\src\meeting_api\app.py:845:                    log_event("ws_status_publish_failed", audience="system", level="warning",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:846:                              span="lifecycle.callback", fields={"error": str(e)})
+> core\meetings\services\meeting-api\src\meeting_api\app.py:847:                # ALSO publish the FLAT frame to the USER-scoped channel u:{user_id}:meetings so the
+  core\meetings\services\meeting-api\src\meeting_api\app.py:848:                # terminal's list surface gets every bot-FSM transition over WS (superset of bm:; it
+  core\meetings\services\meeting-api\src\meeting_api\app.py:849:                # also carries the pre-FSM idle/scheduled states). KEEP bm: above for the open-meeting
+  core\meetings\services\meeting-api\src\meeting_api\app.py:850:                # tab. Best-effort: never fail the lifecycle callback.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:851:                user_id = meeting_row.get("user_id")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:852:                if user_id is not None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:853:                    user_frame = {
+  core\meetings\services\meeting-api\src\meeting_api\app.py:858:                        "when": frame["ts"],
+  core\meetings\services\meeting-api\src\meeting_api\app.py:859:                    }
+  core\meetings\services\meeting-api\src\meeting_api\app.py:860:                    try:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:861:                        await redis.publish(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:862:                            f"u:{user_id}:meetings", _json.dumps(user_frame)
+  core\meetings\services\meeting-api\src\meeting_api\app.py:863:                        )
+> core\meetings\services\meeting-api\src\meeting_api\app.py:864:                    except Exception as e:  # noqa: BLE001 — publish is best-effort
+> core\meetings\services\meeting-api\src\meeting_api\app.py:865:                        log_event("user_meeting_status_publish_failed", audience="system",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:866:                                  level="warning", span="lifecycle.callback",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:867:                                  fields={"error": str(e)})
+  core\meetings\services\meeting-api\src\meeting_api\app.py:868:        # COPILOT REAP (Bug 3): the moment a meeting lands TERMINAL, emit the `session_end` marker onto
+> core\meetings\services\meeting-api\src\meeting_api\app.py:869:        # the meeting copilot transcript feed — the EXACT stream the meeting copilot worker
+> core\meetings\services\meeting-api\src\meeting_api\app.py:870:        # (agent worker/meeting.py, via VEXA_TRANSCRIPT_STREAM) blocks on. The worker reaps immediately
+  core\meetings\services\meeting-api\src\meeting_api\app.py:871:        # on that marker (exit 0 → container reaped), instead of sitting idle for its
+  core\meetings\services\meeting-api\src\meeting_api\app.py:872:        # VEXA_IDLE_TIMEOUT_SEC (default 4h) when the bot never emitted its own `session_end` — e.g. it
+  core\meetings\services\meeting-api\src\meeting_api\app.py:873:        # was SIGKILLed, or stopped in the waiting room (Bug 2) before it could. Idempotent: a redundant
+  core\meetings\services\meeting-api\src\meeting_api\app.py:874:        # session_end (the bot already sent one via the collector) just reasserts the reap. Best-effort;
+  core\meetings\services\meeting-api\src\meeting_api\app.py:875:        # never fails the lifecycle callback.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:876:        #
+> core\meetings\services\meeting-api\src\meeting_api\app.py:877:        # KEYING (P0 fix/transcript-cross-tenant-leak, now merged): the carrier is ROW-scoped
+  core\meetings\services\meeting-api\src\meeting_api\app.py:878:        # `tc:meeting:{meeting_row_id}` — the numeric meetings-domain ROW id, NOT the native id (which
+  core\meetings\services\meeting-api\src\meeting_api\app.py:879:        # collides across tenants/rows and is never a data key post-P0). The collector
+> core\meetings\services\meeting-api\src\meeting_api\app.py:880:        # (collector/ingest.py `_transcript_stream`) writes its session_end on the same row key and the
+> core\meetings\services\meeting-api\src\meeting_api\app.py:881:        # worker tails the row key (agent dispatch.py sets VEXA_TRANSCRIPT_STREAM=tc:meeting:{row_id}),
+  core\meetings\services\meeting-api\src\meeting_api\app.py:882:        # so this lifecycle reap must key by the row id to land on the live stream the worker blocks on.
+  core\meetings\services\meeting-api\src\meeting_api\app.py:883:        if (
+> core\meetings\services\meeting-api\src\meeting_api\app.py:884:            redis is not None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:885:            and not change.no_op
+  core\meetings\services\meeting-api\src\meeting_api\app.py:886:            and rec.status is not None
+  core\meetings\services\meeting-api\src\meeting_api\app.py:887:            and rec.status.value in ("completed", "failed")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:888:            and isinstance(meeting_row, dict)
+> core\meetings\services\meeting-api\src\meeting_api\app.py:889:            and hasattr(redis, "xadd")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:890:        ):
+  core\meetings\services\meeting-api\src\meeting_api\app.py:891:            meeting_row_id = meeting_row.get("id")
+  core\meetings\services\meeting-api\src\meeting_api\app.py:892:            native = meeting_row.get("native_meeting_id") or rec.connection_id
+  core\meetings\services\meeting-api\src\meeting_api\app.py:893:            if meeting_row_id is not None:
+  core\meetings\services\meeting-api\src\meeting_api\app.py:894:                try:
+> core\meetings\services\meeting-api\src\meeting_api\app.py:895:                    await redis.xadd(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:896:                        f"tc:meeting:{meeting_row_id}",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:897:                        {"type": "session_end", "uid": str(native or meeting_row_id)},
+  core\meetings\services\meeting-api\src\meeting_api\app.py:898:                    )
+  core\meetings\services\meeting-api\src\meeting_api\app.py:899:                    log_event(
+  core\meetings\services\meeting-api\src\meeting_api\app.py:900:                        "meeting_copilot_reap_signalled", audience="system", span="lifecycle.callback",
+  core\meetings\services\meeting-api\src\meeting_api\app.py:901:                        meeting_id=rec.connection_id,
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:145:def probe_url(base: str, path: str) -> str:
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:146:    """Join a configured base URL to the probe's declared path, accepting BOTH accepted shapes:
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:147:    a bare base (``https://api.openai.com``) and a full endpoint URL that already carries the path
+> core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:148:    (``https://api.openai.com/v1/audio/transcriptions``). Appending blindly would double-path the
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:149:    latter into a 404 — the same URL that works in a meeting. This is the ONE rule, shared with the
+> core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:150:    bot's client (``whisper/src/transcription-client.ts``) and the terminal's dictation route."""
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:151:    base = (base or "").strip().rstrip("/")
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:152:    if not path:
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:153:        return base
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:154:    return base if base.endswith(path) else base + path
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:155:
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:156:
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:207:    The oracle, in order: network failure ⇒ ``unreachable`` · declared ``unauthorized_statuses``
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:208:    (401/403) ⇒ ``unauthorized``, the token was rejected · declared ``exhausted_statuses`` (402) ⇒
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:209:    ``exhausted``, the token is authentic but cannot buy the work · declared ``invalid_statuses``
+> core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:210:    (404 for an OpenAI-compatible transcriptions path) ⇒ ``invalid_endpoint``, the URL shape is
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:211:    wrong. Any OTHER status proves reachability + accepted auth ⇒ ok.
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:212:
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:213:    ``payload: "audio"`` makes the probe send the REAL thing — a ~1s WAV, the same request shape a
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:214:    bot's first chunk makes — because an empty body cannot answer the question. A metered backend
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:215:    answers an empty POST 400/422 whether the credential is funded or worthless, so the probe that
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:216:    never sends audio greens a token that will 402 on every segment of every meeting. Sending audio
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:250:    if status in (spec.get("exhausted_statuses") or []):
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:251:        return {"ok": False, "status": status, "kind": "exhausted",
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:252:                "reason": f"the token is VALID but cannot pay for the work (HTTP {status}) — every "
+> core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:253:                          f"transcription will fail and meetings will complete with no transcript; "
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:254:                          f"top up the account or configure a token that can transcribe"}
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:255:    if status in (spec.get("invalid_statuses") or []):
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:256:        return {"ok": False, "status": status, "kind": "invalid_endpoint",
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:257:                "reason": f"endpoint path not found ({url}) — check the URL shape; some gateways "
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:258:                          f"also answer 404 for a rejected credential"}
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:259:    return {"ok": True, "status": status}
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:369:            "config.v1 declaration (config.v1.json, gate:config-contract); set them and restart."
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:370:        )
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:371:    # A key sitting on a documented placeholder is UNCONFIGURED wearing a configured face — worse
+> core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:372:    # than unset, because nothing 503s and the value is published (F95). Never echo the value.
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:373:    placeheld = [e["key"] for e in decl.get("keys") or []
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:374:                 if e.get("forbidden_values")
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:375:                 and (env.get(e["key"]) or "").strip() in set(e["forbidden_values"])]
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:376:    if placeheld:
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:377:        raise ConfigError(
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:378:            f"{decl.get('service')} is misconfigured and refuses to boot — {', '.join(placeheld)} "
+> core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:379:            "still hold(s) a documented PLACEHOLDER value. That literal is published in this "
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:380:            "repository, so it is not a secret: anyone can present it. Generate a real value "
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:381:            "(`openssl rand -hex 32`), set it on every service that shares the tier, and restart. "
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:382:            "The forbidden literals are declared per key in this service's config.v1 declaration "
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:383:            "(config.v1.json, gate:config-contract)."
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:384:        )
+  core\meetings\services\meeting-api\src\meeting_api\config_preflight.py:385:    rows = capability_health(env, force_probe=True)
+> core\meetings\services\meeting-api\src\meeting_api\events.py:1:"""PUBLISHING MEETING FACTS INTO FLOWS — meetings tells, it does not ask.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:2:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:3:F168/F181: an ad hoc bot — one started via the MCP `request_meeting_bot` verb, never through a
+  core\meetings\services\meeting-api\src\meeting_api\events.py:4:calendar invite — never produced a `post_meeting` reaction. Only `invite_intake` (flows' own flow)
+  core\meetings\services\meeting-api\src\meeting_api\events.py:5:ever told flows that a meeting started or finished (`emit_started` / `emit_completed`,
+  core\meetings\services\meeting-api\src\meeting_api\events.py:6:`flows_defs/production.py`, PRD decision 42.2); meeting-api's only outbound door was the operator
+  core\meetings\services\meeting-api\src\meeting_api\events.py:7:webhook (`webhooks/system.py`), and flows does not read it. This module is the missing edge:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:8:meeting-api telling flows itself, the way identity's `admin_api/app/events.py` already tells it
+> core\meetings\services\meeting-api\src\meeting_api\events.py:9:about onboarding and agent-api's `control_plane/publish.py` already tells it about desk facts. Copy
+  core\meetings\services\meeting-api\src\meeting_api\events.py:10:those two files' argument before you copy their code — it is the same argument one layer down.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:11:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:12:A PUBLISH EDGE IS NOT A DEPENDENCY:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:13:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:14:  * a DEPENDENCY is a call whose answer the caller needs. This module has none — nothing the
+  core\meetings\services\meeting-api\src\meeting_api\events.py:15:    lifecycle callback does branches on whether flows heard about it.
+> core\meetings\services\meeting-api\src\meeting_api\events.py:16:  * a PUBLISH is a fact handed over. Best-effort, bounded, swallowed. A deployment with no flows
+  core\meetings\services\meeting-api\src\meeting_api\events.py:17:    domain runs meetings exactly as one with a flows domain does, and so does one where flows is
+  core\meetings\services\meeting-api\src\meeting_api\events.py:18:    down or slow — that is a PROFILE, not a degraded state.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:19:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:20:So `VEXA_FLOWS_API_URL` / `VEXA_FLOWS_API_KEY` are declared as a `publish-edge` in `config.v1.json`,
+  core\meetings\services\meeting-api\src\meeting_api\events.py:21:matching agent-api's own spelling of the URL key (identity's admin-api spelled it bare
+> core\meetings\services\meeting-api\src\meeting_api\events.py:22:`FLOWS_API_URL` until F208, which aligned it to the name the other two publishers already used; the
+  core\meetings\services\meeting-api\src\meeting_api\events.py:23:bare name is still honoured there for one release, with a boot warning).
+  core\meetings\services\meeting-api\src\meeting_api\events.py:24:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:25:THE SOURCE_EVENT_ID MATCHES FLOWS' OWN SCHEME ON PURPOSE (`live-<meeting_id>` / `done-<meeting_id>`
+  core\meetings\services\meeting-api\src\meeting_api\events.py:26:— see `meeting_started_source_id` / `meeting_completed_source_id`), not a meeting-api-flavoured
+  core\meetings\services\meeting-api\src\meeting_api\events.py:27:id. flows admits on `(source_event_id, flow)` (`flows/admission.py`): the same id from two
+  core\meetings\services\meeting-api\src\meeting_api\events.py:28:producers is one reaction, not two. `invite_intake` still runs its own `emit_started` /
+  core\meetings\services\meeting-api\src\meeting_api\events.py:54:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:55:log = logging.getLogger("meeting_api.events")
+  core\meetings\services\meeting-api\src\meeting_api\events.py:56:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:57:#: Bounded on purpose. Both publishes run inside the lifecycle callback a bot's own HTTP round
+  core\meetings\services\meeting-api\src\meeting_api\events.py:58:#: trip is waiting on, so the ceiling on how slow flows can make that callback is this number, not
+  core\meetings\services\meeting-api\src\meeting_api\events.py:59:#: flows' own timeout.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:60:#:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:61:#: AND THE BOUND IS ONLY REAL BECAUSE THE CALL IS ASYNC. This used to be
+  core\meetings\services\meeting-api\src\meeting_api\events.py:62:#: ``urllib.request.urlopen(req, timeout=TIMEOUT_S)`` — a BLOCKING call on the event loop inside
+  core\meetings\services\meeting-api\src\meeting_api\events.py:63:#: ``async def _apply_lifecycle_event``, which is the same loop that runs the segment consumer, the
+> core\meetings\services\meeting-api\src\meeting_api\events.py:64:#: db-writer, the live transcript reads and ``/health``. Two things were wrong with it and only one
+  core\meetings\services\meeting-api\src\meeting_api\events.py:65:#: of them was the 2 s: urllib's ``timeout`` is a SOCKET timeout, so name resolution is not covered
+  core\meetings\services\meeting-api\src\meeting_api\events.py:66:#: at all — an unresolvable ``VEXA_FLOWS_API_URL`` stalled the whole process for as long as the
+  core\meetings\services\meeting-api\src\meeting_api\events.py:67:#: resolver took, not for two seconds. ``httpx.AsyncClient(timeout=…)`` bounds connect (DNS
+  core\meetings\services\meeting-api\src\meeting_api\events.py:68:#: included), write, read and pool acquisition, and awaits instead of blocking, so a slow or dead
+  core\meetings\services\meeting-api\src\meeting_api\events.py:69:#: flows costs THIS callback its bound and costs every other coroutine nothing.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:70:TIMEOUT_S = 2.0
+  core\meetings\services\meeting-api\src\meeting_api\events.py:78:    return (os.getenv("VEXA_FLOWS_API_KEY") or "").strip()
+  core\meetings\services\meeting-api\src\meeting_api\events.py:79:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:80:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:81:async def publish(event_type: str, source_event_id: str, refs: dict,
+  core\meetings\services\meeting-api\src\meeting_api\events.py:82:                  *, timeout: Optional[float] = None) -> bool:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:83:    """Hand one fact to the flows intake. Returns whether it landed; NEVER raises.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:84:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:85:    The return value is for a caller that wants to log or count, not one that wants to decide:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:86:    there is no correct behaviour on a failed publish except to carry on, because the alternative
+  core\meetings\services\meeting-api\src\meeting_api\events.py:87:    is failing a bot's own lifecycle callback over a message it never asked us to send.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:88:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:89:    AWAITED, not blocking — see ``TIMEOUT_S``. The caller is ``async def _apply_lifecycle_event``.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:90:    """
+  core\meetings\services\meeting-api\src\meeting_api\events.py:91:    base = _flows_base()
+  core\meetings\services\meeting-api\src\meeting_api\events.py:92:    if not base:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:95:    # plain pydantic BaseModel that IGNORES an unknown key rather than refusing it — the F142 shape,
+  core\meetings\services\meeting-api\src\meeting_api\events.py:96:    # where a body spelled `subject_refs` was admitted 202 with `refs == {}` and every consumer
+  core\meetings\services\meeting-api\src\meeting_api\events.py:97:    # step failed non-retryably on a missing ref while everything upstream looked ordinary. Spelled
+> core\meetings\services\meeting-api\src\meeting_api\events.py:98:    # right here on purpose; `test_every_publisher_names_the_refs_field_the_intake_actually_reads`
+  core\meetings\services\meeting-api\src\meeting_api\events.py:99:    # (flows' carrier census suite) derives both halves from source and would catch a regression.
+  core\meetings\services\meeting-api\src\meeting_api\events.py:100:    body = json.dumps({"event_type": event_type, "source_event_id": source_event_id,
+  core\meetings\services\meeting-api\src\meeting_api\events.py:101:                       "refs": refs}).encode()
+  core\meetings\services\meeting-api\src\meeting_api\events.py:102:    headers = {"content-type": "application/json"}
+  core\meetings\services\meeting-api\src\meeting_api\events.py:103:    key = _flows_key()
+  core\meetings\services\meeting-api\src\meeting_api\events.py:104:    if key:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:112:        async with httpx.AsyncClient(timeout=timeout or TIMEOUT_S) as client:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:113:            r = await client.post(f"{base}/events", content=body, headers=headers)
+  core\meetings\services\meeting-api\src\meeting_api\events.py:114:        return 200 <= r.status_code < 300
+> core\meetings\services\meeting-api\src\meeting_api\events.py:115:    except Exception:  # noqa: BLE001 — see the module docstring: a publish is not a dependency
+  core\meetings\services\meeting-api\src\meeting_api\events.py:116:        # SWALLOWED, NOT SILENT. The old shape returned False from a bare `except` and left no
+  core\meetings\services\meeting-api\src\meeting_api\events.py:117:        # trace anywhere, so a flows address that had been wrong since a deploy looked exactly like
+  core\meetings\services\meeting-api\src\meeting_api\events.py:118:        # a deployment with no flows domain. DEBUG, not warning: this fires per meeting lifecycle
+  core\meetings\services\meeting-api\src\meeting_api\events.py:119:        # transition, and a deployment that has flows down does not need one line per meeting at
+  core\meetings\services\meeting-api\src\meeting_api\events.py:120:        # warning level to be told so twice.
+> core\meetings\services\meeting-api\src\meeting_api\events.py:121:        log.debug("flows publish %s did not land (base=%s)", event_type, base, exc_info=True)
+  core\meetings\services\meeting-api\src\meeting_api\events.py:122:        return False
+  core\meetings\services\meeting-api\src\meeting_api\events.py:123:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:124:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:125:def meeting_started_source_id(meeting_id) -> str:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:126:    """Matches `invite_intake`'s own `emit_started` id exactly — see the module docstring."""
+  core\meetings\services\meeting-api\src\meeting_api\events.py:127:    return f"live-{meeting_id}"
+  core\meetings\services\meeting-api\src\meeting_api\events.py:149:            "platform": str(platform or ""), "completion_reason": str(completion_reason or "")}
+  core\meetings\services\meeting-api\src\meeting_api\events.py:150:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:151:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:152:async def publish_meeting_started(meeting_id, native, platform, uid,
+  core\meetings\services\meeting-api\src\meeting_api\events.py:153:                                  *, timeout: Optional[float] = None) -> bool:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:154:    return await publish(EVENT_MEETING_STARTED, meeting_started_source_id(meeting_id),
+  core\meetings\services\meeting-api\src\meeting_api\events.py:155:                         meeting_started_refs(meeting_id, native, platform, uid), timeout=timeout)
+  core\meetings\services\meeting-api\src\meeting_api\events.py:156:
+  core\meetings\services\meeting-api\src\meeting_api\events.py:157:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:158:async def publish_meeting_completed(meeting_id, native, platform, uid, completion_reason,
+  core\meetings\services\meeting-api\src\meeting_api\events.py:159:                                    *, timeout: Optional[float] = None) -> bool:
+> core\meetings\services\meeting-api\src\meeting_api\events.py:160:    return await publish(
+  core\meetings\services\meeting-api\src\meeting_api\events.py:161:        EVENT_MEETING_COMPLETED, meeting_completed_source_id(meeting_id),
+  core\meetings\services\meeting-api\src\meeting_api\events.py:162:        meeting_completed_refs(meeting_id, native, platform, uid, completion_reason),
+  core\meetings\services\meeting-api\src\meeting_api\events.py:163:        timeout=timeout)
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:12:  receiver; ``lifecycle.LifecycleSink`` / ``MeetingStore`` the port + store.
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:13:* **bot_spawn** (invocation.v1 + runtime.v1) — POST ``/bots``: build the invocation + mint the
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:14:  MeetingToken + spawn the meeting-bot over the runtime kernel, eager-creating the MeetingSession.
+> core\meetings\services\meeting-api\src\meeting_api\__init__.py:15:* **collector** (api.v1) — the FOLDED-IN transcript backend (was the standalone
+> core\meetings\services\meeting-api\src\meeting_api\__init__.py:16:  transcription-collector): GET ``/transcripts``, GET ``/meetings``, POST ``/ws/authorize-subscribe``
+> core\meetings\services\meeting-api\src\meeting_api\__init__.py:17:  + the ``transcription_segments`` → ``tc:…:mutable`` consumer.
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:18:* **recordings** (recording.v1) — chunk upload + finalize → master in ``meeting.data`` JSONB.
+> core\meetings\services\meeting-api\src\meeting_api\__init__.py:19:* **sessions** — the ``MeetingSession`` model + the shared SQLAlchemy mirror (Meeting/Transcription/
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:20:  MeetingSession) every module binds.
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:21:
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:22:**Library bricks** (driven by the flows above; wired by the P3 composition root):
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:23:
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:24:* **webhooks** (O-MTG-2, webhook.v1) — outbound delivery behind a ``WebhookSink`` port: HMAC
+> core\meetings\services\meeting-api\src\meeting_api\__init__.py:25:  sign/verify, SSRF URL-guard, per-client event-filter, redis-backed retry queue + worker sweep.
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:26:* **scheduling** (O-MTG-3, schedule.v1) — compile a ``ScheduledBot{cron|at}`` into a job whose
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:27:  request is the ``POST /bots`` call, fired by a Clock-gated scheduler.
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:28:
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:29:**Recording master codec** (recording.v1) — ``build_recording_master(chunks, media_format)``: the
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:30:golden-locked Python twin of ``@vexa/recording``'s ``buildRecordingMaster``.
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:31:"""
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:33:from .app import create_app
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:34:from .recording_codec import build_recording_master
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:35:
+> core\meetings\services\meeting-api\src\meeting_api\__init__.py:36:# ``scheduling`` (croniter) and ``webhooks`` (redis retry) are library bricks driven by the flows
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:37:# above; they are NOT on the unified app's HTTP path. Expose them LAZILY (PEP 562) so importing
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:38:# ``create_app`` / the app modules does not pull their heavier deps — a downstream consumer that
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:39:# only drives the REST surface (e.g. the gateway conformance harness) needs neither.
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:40:_LAZY = ("scheduling", "webhooks")
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:41:
+  core\meetings\services\meeting-api\src\meeting_api\__init__.py:42:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:1:"""``python -m meeting_api`` — the production meeting-api (P4 compose CMD).
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:2:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:3:Assembles the unified modular-monolith (``meeting_api.create_app``) with the REAL per-module
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:4:adapters (SQLAlchemy + redis + MinIO/S3 + httpx-runtime), then — per P4 — ALSO starts the
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:5:control-plane background loops alongside the HTTP app via the FastAPI lifespan:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:6:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:7:  * **collector segment consumer** — drains the ``transcription_segments`` redis stream
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:8:    (``consume_segments`` → ``ingest`` → publish ``tc:…:mutable``) on a poll interval.
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:9:  * **db-writer** — the RESTORED parent flush loop (0.10 ``process_redis_to_postgres``): each tick
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:10:    moves immutable live segments from the redis hash ``meeting:{id}:segments`` into the
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:11:    ``transcriptions`` table (upsert on segment identity; redis trimmed only after the confirmed
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:12:    write) and drains the copilot's ``proc:meeting:{id}`` notes into ``meeting.data`` JSONB.
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:13:  * **webhook retry-drain** — one ``drain_retry_queue`` sweep per interval over the redis retry
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:14:    queue (failed ``meeting.status_change`` deliveries are retried with backoff).
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:15:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:16:Each loop is a single-tick function the eval drives explicitly; here the entrypoint wraps it in the
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:17:``while True: tick; sleep`` poll the deployment uses. uvicorn-target: ``uvicorn meeting_api.__main__:app``.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:18:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:19:#637 — at ``meetingApi.replicaCount>1`` every replica starts these same loops, so each live tick body
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:20:is wrapped in a per-loop Postgres advisory lock (``sweeps.single_flight``): the real work runs once per
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:21:interval, not once per replica. ``segment-consumer`` is intentionally left unguarded (Redis competing
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:22:consumer). The former ``scheduler-tick`` loop was dead code (``app.state.scheduler`` was never wired —
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:23:the ``Scheduler`` in ``scheduling/`` is an eval-only engine) and has been removed.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:24:"""
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:25:from __future__ import annotations
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:26:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:27:import asyncio
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:66:CALENDAR_SYNC_CONCURRENCY = 4
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:67:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:68:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:69:async def _sync_user_calendars(store, redis_client, user_id: int, configs: list,
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:70:                               *, publish=None, client=None) -> list:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:71:    """Sync ONE user's calendar connections and return their ACTIVE connections' stamps.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:72:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:73:    The user's meeting rows are read ONCE here and threaded through every connection —
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:74:    ``sync_user`` keeps the list current as it writes, so a second calendar sees the first one's
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:75:    inserts without a second full read. Each connection's stamp is persisted under its own key,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:76:    exactly as the per-connection panel reads it.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:84:    rows = await store.list_meetings(user_id)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:85:    stamps = []
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:86:    for cfg in configs:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:87:        stamp = await run_user_sync(store, cfg, publish=publish, rows=rows, client=client)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:88:        if cfg.get("deleted"):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:89:            continue
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:90:        stamp["calendar_id"] = cfg.get("calendar_id")
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:91:        stamp["calendar_name"] = cfg.get("calendar_name")
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:92:        await store_stamp(redis_client, user_id, stamp, cfg.get("calendar_id"))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:93:        stamps.append(stamp)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:94:    return stamps
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:95:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:96:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:97:def build_production_app():
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:98:    """Wire the unified meeting-api with the real adapters + the lifespan-driven loops."""
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:99:    _require_config()  # A4: refuse to boot a misconfigured deploy (no ADMIN_TOKEN → every spawn 500s).
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:100:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:101:    import redis.asyncio as aioredis
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:102:    from sqlalchemy.ext.asyncio import async_sessionmaker
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:103:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:104:    from . import create_app
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:105:    from .db import build_engine
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:106:    from .bot_spawn.adapters import HttpRuntimeClient, SqlAlchemyMeetingRepo
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:107:    from .collector.adapters import RedisStreamBus, SqlAlchemyTranscriptStore
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:108:    from .recordings.adapters import S3Storage, SqlAlchemyRecordingRepo
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:109:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:110:    database_url = _database_url()
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:111:    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:112:    runtime_api_url = os.getenv("RUNTIME_API_URL", "http://runtime:8090")
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:113:    # MeetingToken is HS256-signed (mint) AND verified (recordings upload) with the SAME secret =
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:114:    # ADMIN_TOKEN, exactly like main. (INTERNAL_API_SECRET is for the gateway↔admin-api internal
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:115:    # validation only — a different concern.) None → the recordings verifier falls back to ADMIN_TOKEN.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:116:    token_secret = os.getenv("ADMIN_TOKEN") or None
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:117:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:118:    engine = build_engine(database_url)  # #635: env-steered pool (pool_pre_ping preserved in the helper)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:119:    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:120:    # #528: harden the shared Redis client so a Redis outage surfaces as a bounded exception the
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:121:    # per-tick handlers already catch — not a hung/zombie socket that only a restart heals. Same
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:122:    # kwargs as the gateway (adapters.py): socket_timeout bounds every await, keepalive + health
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:123:    # checks detect a dead peer, connect timeout bounds re-dial, retry_on_timeout re-issues once.
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:124:    redis_client = aioredis.from_url(
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:125:        redis_url, decode_responses=True,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:126:        socket_timeout=10, socket_connect_timeout=5, socket_keepalive=True,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:127:        health_check_interval=30, retry_on_timeout=True,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:128:    )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:129:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:130:    # Per-module production adapters (each module's adapters.* builders) injected into create_app.
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:131:    transcript_store = SqlAlchemyTranscriptStore(session_factory, redis_client=redis_client)
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:132:    segment_bus = RedisStreamBus(redis_client)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:133:    meeting_repo = SqlAlchemyMeetingRepo(session_factory)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:134:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:135:    import httpx
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:136:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:137:    runtime_http = httpx.AsyncClient(timeout=30.0)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:138:    runtime_client = HttpRuntimeClient(runtime_http, runtime_api_url)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:149:    )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:150:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:151:    # Per-user webhook delivery (WebhookSink: SSRF-guard → event-filter → sign → POST → enqueue-retry).
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:152:    # httpx transport; failures route to the redis RetryQueue the background drain loop sweeps.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:153:    # WH2: the transport is IP-PINNED — it re-resolves + re-validates the host at connect time and
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:154:    # dials the validated IP (preserving Host + TLS SNI), closing the DNS-rebinding TOCTOU window
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:155:    # between submit-time validate_webhook_url and the actual socket connect.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:156:    from .webhooks import RetryQueue, WebhookSink
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:157:    from .webhooks.ssrf import build_pinned_transport
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:158:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:160:        async with httpx.AsyncClient(timeout=10.0, transport=build_pinned_transport()) as client:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:161:            return await client.post(url, content=body, headers=headers)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:162:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:163:    webhook_sink = WebhookSink(_webhook_transport, queue=RetryQueue(redis_client))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:164:    from .webhooks import build_system_webhook_from_env
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:165:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:166:    system_webhook_sink = build_system_webhook_from_env(redis_client)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:167:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:168:    # #841: the per-user delivery ledger — the queryable record GET /webhooks/deliveries serves.
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:169:    # A per-user capped Redis list; the lifecycle callback records each delivery outcome so the
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:170:    # dashboard's Delivery History reflects real deliveries, not just its own Test button.
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:171:    from .webhooks import RedisDeliveryLedger
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:172:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:173:    delivery_ledger = RedisDeliveryLedger(redis_client)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:174:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:175:    # Completion finalization: when the lifecycle FSM lands on a terminal status the callback runs
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:176:    # this — flush the meeting's remaining redis segments to Postgres (threshold 0) + persist the
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:177:    # processed doc into meeting.data, so a finished meeting is durable IMMEDIATELY (not `whenever
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:178:    # the next db-writer tick happens to run`).
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:179:    from .collector.db_writer import finalize_meeting
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:180:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:181:    async def _transcript_finalizer(meeting_id: int) -> int:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:182:        return await finalize_meeting(redis_client, transcript_store, meeting_id)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:183:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:184:    # Calendar-sync user edges (GET/POST /user/calendar/sync): the SAME one-user pass the
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:185:    # background sweep runs, on demand — paste-a-feed gets an immediate result instead of a
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:186:    # silent wait for the next tick (fail loud to the user). None-returns mean "no feed / sync
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:187:    # unavailable" and the route answers 404/503 accordingly.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:188:    async def _calendar_sync_now(user_id: int, calendar_id: str | None = None):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:207:                     "native": entry.get("native"), "status": entry.get("status"),
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:208:                     "when": entry.get("when")}
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:209:            try:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:210:                await redis_client.publish(f"u:{uid}:meetings", _json.dumps(frame))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:211:            except Exception:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:212:                pass
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:213:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:214:        stamps = await _sync_user_calendars(
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:215:            transcript_store, redis_client, user_id, selected, publish=_pub,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:216:        )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:217:        if calendar_id is not None:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:218:            return stamps[0]
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:219:        aggregate = aggregate_stamps(stamps)
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:220:        await store_stamp(redis_client, user_id, aggregate)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:221:        return aggregate
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:222:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:223:    async def _calendar_sync_status(user_id: int, calendar_id: str | None = None):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:224:        from .calendar_sync import read_stamp
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:225:        return await read_stamp(redis_client, user_id, calendar_id)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:226:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:227:    app = create_app(
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:228:        transcript_store=transcript_store,
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:229:        redis=segment_bus,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:230:        meeting_repo=meeting_repo,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:231:        runtime=runtime_client,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:232:        service_authority=service_authority,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:233:        recording_repo=recording_repo,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:234:        storage=storage,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:235:        token_secret=token_secret,
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:236:        # The user-stop route (DELETE /bots) publishes the bot's `leave` command on redis pub/sub.
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:237:        # redis.asyncio's client satisfies the CommandPublisher port directly (async publish()).
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:238:        command_publisher=redis_client,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:239:        webhook_sink=webhook_sink,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:240:        system_webhook_sink=system_webhook_sink,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:241:        delivery_ledger=delivery_ledger,
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:242:        transcript_finalizer=_transcript_finalizer,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:243:        calendar_sync_now=_calendar_sync_now,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:244:        calendar_sync_status=_calendar_sync_status,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:245:    )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:246:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:247:    _attach_background_loops(
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:248:        app, transcript_store, segment_bus, redis_client, meeting_repo, runtime_client,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:249:        service_authority=service_authority,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:250:        system_webhook_sink=system_webhook_sink,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:251:        session_factory=session_factory,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:252:        storage=storage,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:253:    )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:254:    return app
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:264:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:265:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:266:def _attach_background_loops(
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:267:    app, transcript_store, segment_bus, redis_client, meeting_repo=None, runtime=None,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:268:    service_authority=None, system_webhook_sink=None, session_factory=None, storage=None,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:269:) -> None:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:270:    """Register the FastAPI lifespan that starts/stops the control-plane poll loops.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:271:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:272:    #637 — single-flight sweeps: at ``replicaCount>1`` every replica runs these same loops, so each
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:273:    live tick body is wrapped in a per-loop Postgres advisory lock (``_guarded``) — the real work runs
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:274:    once per interval, not once per replica. With no ``session_factory`` (Lite / a store without PG)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:275:    the guard degrades to run-the-tick, so single-replica behavior is unchanged. ``segment-consumer``
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:276:    is DELIBERATELY left unguarded — it is a Redis competing consumer (``XREADGROUP … ">"``) whose
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:277:    single-delivery is already exact, and guarding it would needlessly serialize the replicas' reads.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:278:    """
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:279:    from .collector.ingest import RECLAIM_MIN_IDLE_MS, consume_segments, reclaim_segments
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:280:    from .sweeps.single_flight import PgAdvisoryLock, run_single_flight, sweep_lock_key
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:281:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:282:    # One shared advisory-lock backend across the guarded loops (each keyed by its own loop name).
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:301:    # #893: the self-healing keyspace SCAN is OFF the 10s hot path. The active_meetings set is
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:302:    # authoritative in steady state, so a tick sweeps the set alone; the O(keyspace) scan that
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:303:    # self-heals a set/hash divergence runs only on startup + every this-many seconds. The per-tick
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:304:    # scan saturated redis and starved /health, restarting healthy pods.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:305:    db_writer_reconcile_interval = float(os.getenv("DB_WRITER_RECONCILE_INTERVAL_S", "300"))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:306:    # Stop-reconcile backstop: a meeting whose bot was told to leave but never sent its own terminal
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:307:    # callback would stay `stopping` forever. After a grace window, complete it through the same
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:308:    # lifecycle callback the bot uses — so the FSM, webhook, and ws status frame all fire identically.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:309:    stop_grace = float(os.getenv("STOP_RECONCILE_GRACE_S", "45"))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:310:    stop_interval = float(os.getenv("STOP_RECONCILE_INTERVAL_S", "15"))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:339:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:340:    # #527: per-loop liveness heartbeats. A loop hung inside an await stops stamping, so /health can
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:341:    # SEE a dead consumer that would otherwise look alive (live WS keeps flowing on a SEPARATE path —
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:342:    # the 2026-04-26 silent-hang, found only by a user opening an empty transcript). Stored on
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:343:    # app.state so /health reads them; the raw redis client + stream/group let /health also report
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:344:    # collector-group lag (XINFO) — the diagnostic signal that existed but was exposed nowhere.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:345:    import time as _time
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:346:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:347:    from .collector.ingest import CONSUMER_GROUP as _SEG_GROUP
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:348:    from .collector.ingest import STREAM_NAME as _SEG_STREAM
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:349:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:350:    ticks: dict[str, float] = {}
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:351:    app.state.pipeline_ticks = ticks
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:352:    app.state.pipeline_redis = redis_client
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:353:    app.state.pipeline_stream = _SEG_STREAM
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:354:    app.state.pipeline_group = _SEG_GROUP
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:355:    app.state.pipeline_tick_stale_s = float(os.getenv("PIPELINE_TICK_STALE_S", "120"))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:356:    app.state.pipeline_lag_alarm = int(os.getenv("PIPELINE_LAG_ALARM", "500"))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:357:    # #636: group PEL depth (delivered-but-un-acked) alarm. Steady state acks within a tick, so a
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:358:    # SUSTAINED total above this threshold is an orphaned batch (a crashed replica's un-reclaimed
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:360:    app.state.pipeline_pending_alarm = int(os.getenv("PIPELINE_PENDING_ALARM", "100"))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:361:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:362:    async def _segment_consumer_loop() -> None:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:363:        # Drain the transcription_segments stream → persist + publish tc:…:mutable.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:364:        tick_n = 0
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:365:        while True:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:366:            try:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:367:                await consume_segments(transcript_store, segment_bus)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:368:                # #636: every N ticks, reclaim any ORPHANED (crashed-replica) un-acked batch idle
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:369:                # past RECLAIM_MIN_IDLE_MS and drain it through the same ingest→ack path. Bounded to
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:370:                # one XAUTOCLAIM per pass (its cursor continues next time) — never a hang surface.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:371:                tick_n += 1
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:372:                if tick_n % seg_reclaim_every == 0:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:373:                    await reclaim_segments(
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:374:                        transcript_store, segment_bus, min_idle_ms=RECLAIM_MIN_IDLE_MS
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:375:                    )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:376:            except asyncio.CancelledError:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:377:                raise
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:378:            except Exception:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:379:                log.exception("segment consumer tick failed")
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:380:            ticks["segment-consumer"] = _time.monotonic()  # #527: alive this iteration
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:381:            await asyncio.sleep(seg_interval)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:382:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:383:    async def _db_writer_loop() -> None:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:384:        # The RESTORED parent db-writer (0.10 process_redis_to_postgres): each tick, flush every
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:385:        # active meeting's IMMUTABLE redis-hash segments into the transcriptions table (upsert on
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:386:        # (meeting_id, segment_id)) and drain its processed-notes stream into meeting.data JSONB.
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:387:        # Redis is trimmed only AFTER the confirmed durable write. Without this loop nothing ever
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:388:        # moved segments to Postgres — the transcriptions table stayed EMPTY and a redis eviction
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:389:        # was unrecoverable transcript loss (the 0.12 release blocker).
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:390:        from .collector.db_writer import db_writer_tick
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:391:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:392:        if not hasattr(transcript_store, "upsert_segments"):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:393:            return  # a store without a durable sink (bare fake) — nothing to flush into
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:394:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:395:        # #893: reconcile (the O(keyspace) self-healing scan) only on the FIRST tick — catch any
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:396:        # mid-upgrade orphan hash on boot — then at most every db_writer_reconcile_interval seconds.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:397:        # Every other tick sweeps the authoritative active_meetings set alone, no scan.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:398:        last_reconcile = [0.0]  # 0 ⇒ the first tick reconciles
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:399:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:400:        async def _tick(reconcile: bool):
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:401:            await db_writer_tick(redis_client, transcript_store, reconcile=reconcile)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:402:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:403:        while True:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:404:            now = _time.monotonic()
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:405:            do_reconcile = (now - last_reconcile[0]) >= db_writer_reconcile_interval
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:406:            try:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:407:                await _guarded("db-writer", lambda: _tick(do_reconcile))  # #637: one flush/interval
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:429:                return await client.post(url, content=body, headers=headers)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:430:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:431:        async def _tick():
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:432:            await drain_retry_queue(redis_client, _transport)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:433:            if system_webhook_sink is not None:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:434:                await system_webhook_sink.drain()
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:435:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:436:        while True:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:437:            try:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:438:                await _guarded("webhook-drain", _tick)  # #637: one drain sweep per interval
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:445:    async def _stop_reconcile_loop() -> None:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:446:        # Complete meetings stuck in `stopping` past the grace window AND kill any orphan workload (CC6 /
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:447:        # ADR-0024) — through the importable reconcile sweep, reusing the SAME in-process lifecycle logic
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:448:        # so the FSM → persist → webhook → ws-publish path fires identically (no duplicate logic).
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:449:        if meeting_repo is None or not hasattr(meeting_repo, "list_stale_stopping"):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:450:            return
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:451:        from .lifecycle.machine import TransitionSource as _TS
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:452:        from .lifecycle.reconcile import (
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:453:            reconcile_stale_nonterminal_sweep,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:454:            reconcile_stale_stopping_sweep,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:562:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:563:        fetch_bot_context = _bot_context_fetcher(admin_api_url, internal_secret)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:564:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:565:        async def publish_status(*, user_id, meeting_id, native_id, status, when):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:566:            frame = {"type": "meeting.status", "meeting_id": meeting_id,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:567:                     "native": native_id, "status": status, "when": when}
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:568:            try:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:569:                await redis_client.publish(f"u:{user_id}:meetings", _json.dumps(frame))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:570:            except Exception:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:571:                pass  # best-effort, like the collector's publish
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:572:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:573:        async def _tick():
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:574:            await auto_join_tick(
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:575:                meeting_repo, runtime,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:576:                authority=service_authority,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:577:                fetch_bot_context=fetch_bot_context,
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:578:                publish_status=publish_status,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:579:                lead_s=auto_join_lead, grace_s=auto_join_grace,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:580:                retry_backoff_s=auto_join_backoff,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:581:                token_secret=os.getenv("ADMIN_TOKEN") or None,
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:582:                redis_url=os.getenv("REDIS_URL"),
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:583:                allow_uncapped=auto_join_allow_uncapped,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:584:            )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:585:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:586:        while True:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:587:            try:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:588:                # #637: one sweep per interval — the per-user spawn stays single-flighted by its own
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:600:    # sweep. Unset ADMIN_API_URL/INTERNAL_API_SECRET → no-op (capability degrade, not boot-fail).
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:601:    calendar_interval = float(os.getenv("CALENDAR_SYNC_INTERVAL_S", "300"))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:602:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:603:    async def _cal_publish(user_id, entry):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:604:        import json as _json
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:605:        frame = {"type": "meeting.status", "meeting_id": entry["id"],
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:606:                 "native": entry.get("native"), "status": entry.get("status"),
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:607:                 "when": entry.get("when")}
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:608:        try:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:609:            await redis_client.publish(f"u:{user_id}:meetings", _json.dumps(frame))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:610:        except Exception:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:611:            pass
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:612:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:613:    async def _calendar_sync_loop() -> None:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:614:        if not (admin_api_url and internal_secret):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:615:            return
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:616:        if not hasattr(transcript_store, "create_planned_meeting"):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:617:            return
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:618:        from .calendar_sync import (aggregate_stamps, build_ics_client, fetch_configs,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:619:                                    store_stamp)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:620:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:621:        async def _tick():
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:622:            configs = await fetch_configs(admin_api_url, internal_secret)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:631:                async with limit:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:632:                    try:  # one bad user never stalls the sweep
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:633:                        stamps = await _sync_user_calendars(
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:634:                            transcript_store, redis_client, user_id, user_configs,
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:635:                            publish=_cal_publish, client=client,
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:636:                        )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:637:                    except Exception:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:638:                        log.exception("calendar sync failed for user %s", user_id)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:639:                        return
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:640:                    if stamps:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:641:                        await store_stamp(redis_client, user_id, aggregate_stamps(stamps))
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:642:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:643:            # ONE pinned client for the whole tick: every feed fetch shares its connection pool
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:644:            # instead of paying a fresh TLS handshake per calendar.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:645:            async with build_ics_client() as client:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:646:                await asyncio.gather(*(
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:647:                    _one_user(user_id, user_configs, client)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:690:            await asyncio.sleep(signal_janitor_interval)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:691:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:692:    async def _ensure_fts_index_once() -> None:
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:693:        """F191 / MIGRATION-0006 — ``ensure_fts_index`` (adapters.py, ``SqlAlchemyTranscriptStore``)
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:694:        built the transcript FTS GIN index and was never called from anywhere: it shipped defined,
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:695:        dead, and search ran a sequential scan of ``transcriptions`` from day one with nothing
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:696:        reporting the gap.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:697:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:698:        A ONE-SHOT task, not a ``while True`` loop like its siblings above: the function's own
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:699:        docstring already establishes it is idempotent and cheap to re-check ("safe to call on
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:700:        every boot"), so one attempt per process lifetime is the right shape — the loop members
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:701:        above poll because their work recurs (new segments, new webhooks); this index does not.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:707:        Single-flighted like the other sweeps (not because a concurrent build corrupts anything —
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:708:        ``CREATE INDEX CONCURRENTLY IF NOT EXISTS`` is itself safe under a race — but so
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:709:        ``replicaCount>1`` does not have every replica open its own AUTOCOMMIT connection and hold
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:710:        it for the full build). ``hasattr`` guards a fake/Lite transcript_store the same way
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:711:        ``upsert_segments``/``create_planned_meeting`` are guarded above — this branch's only real
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:712:        store is ``SqlAlchemyTranscriptStore``, but eval/test doubles that construct this function
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:713:        with something else must not crash on a method they were never given.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:714:        """
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:715:        if not hasattr(transcript_store, "ensure_fts_index"):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:716:            return
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:717:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:718:        async def _tick():
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:719:            result = await transcript_store.ensure_fts_index()
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:720:            log.info("transcript FTS index: %s", result)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:721:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:722:        try:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:723:            await _guarded("ensure-fts-index", _tick)
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:724:        except asyncio.CancelledError:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:725:            raise
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:726:        except Exception:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:727:            log.exception(
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:728:                "ensure_fts_index failed — transcript search falls back to a sequential scan "
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:729:                "until the next boot retries it"
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:730:            )
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:731:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:732:    @asynccontextmanager
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:733:    async def lifespan(_app):
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:734:        tasks = [
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:778:    NOT USED BY `POST /bots` any more. The direct path used to be handed this same builder so the
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:779:    person's default name reached it too, which made that one request fetch
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:780:    `/internal/users/{id}/bot-context` TWICE: once here at 10s for the name, once inside
+> core\meetings\services\meeting-api\src\meeting_api\__main__.py:781:    `bot_spawn/service.request_bot` at 5s for the transcription backend and the capture-signal
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:782:    decision — up to +15s on a path a person is waiting on, for one string. `request_bot` reads the
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:783:    name out of the context it already has. Both paths still resolve the same value from the same
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:784:    door, which is what the founder ruling required; there is just one call per spawn.
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:785:    """
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:786:    if not admin_api_url or not internal_secret:
+  core\meetings\services\meeting-api\src\meeting_api\__main__.py:787:        return None
+
+
+PS C:\Users\RTEC\Downloads\vexa>
